@@ -1,16 +1,16 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="sand">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Shine</title>
+  <title>Slides Forever</title>
   <link rel="stylesheet" href="slide.css" />
   <link rel="stylesheet" href="app.css" />
 </head>
 <body>
   <header class="topbar">
-    <div class="brand"><img src="icon.png" alt="" /><span>Shine</span></div>
-    <div class="top-hint" id="topHint">Click to preview · Double-click to go live · <kbd>→</kbd> next slide</div>
+    <div class="brand"><img src="logo.png" alt="Slides Forever" /></div>
+    <div class="greeting"><b id="greeting">Welcome</b><small id="greetingSub">Click to preview · Double-click to go live</small></div>
     <div class="top-actions">
       <button class="display-pill" id="btnDisplays" title="Choose the screen the live output goes to">
         <span class="ic-wrap" data-icon="monitor"></span>
@@ -20,7 +20,7 @@
       <button class="output-toggle" id="btnOutput" title="Turn the live output window on/off">
         <span class="dot"></span><span id="outputLabel">Output off</span>
       </button>
-      <button class="icon-btn light" id="btnSettings" title="Settings"><span data-icon="sliders"></span></button>
+      <button class="icon-btn big" id="btnSettings" title="Settings"><span data-icon="sliders"></span></button>
     </div>
   </header>
 
@@ -36,7 +36,7 @@
       <ol class="schedule" id="schedule"></ol>
       <div class="schedule-empty" id="scheduleEmpty">
         <span data-icon="layers"></span>
-        <p><b>Build your service</b><br />Drag songs, verses and media here, or use <b>+ Service</b>.</p>
+        <p><b>Build your service</b><br />Drag songs, verses, media and slide groups here.</p>
       </div>
     </section>
 
@@ -64,20 +64,38 @@
         <span class="live-chip"><i></i>LIVE</span>
         <span class="item-title" id="liveTitle">Nothing live</span>
         <div class="grow"></div>
+        <select class="mini-select" id="liveTransition" title="Transition">
+          <option value="fade">Fade</option><option value="slide">Slide</option><option value="zoom">Zoom</option>
+          <option value="wipe">Wipe</option><option value="blur">Blur</option><option value="cut">Cut</option>
+        </select>
       </div>
       <div class="stage-row">
         <div class="stage live" id="liveStage"></div>
         <div class="live-tools">
           <button class="tool" id="btnBlack" title="Black screen (B)"><span data-icon="black"></span><b>Black</b></button>
           <button class="tool" id="btnClearText" title="Hide text, keep background (C)"><span data-icon="textoff"></span><b>Clear</b></button>
-          <button class="tool" id="btnLogo" title="Show logo (L)"><span data-icon="star"></span><b>Logo</b></button>
+          <button class="tool" id="btnStandby" title="Standby screen (S)"><span data-icon="pause"></span><b>Standby</b></button>
         </div>
       </div>
-      <div class="video-bar" id="videoBar" hidden>
+      <div class="bar" id="videoBar" hidden>
         <button class="icon-btn" id="btnVidPlay" title="Play / pause"><span data-icon="pause"></span></button>
         <button class="icon-btn" id="btnVidRestart" title="Restart"><span data-icon="restart"></span></button>
         <input type="range" id="vidSeek" min="0" max="1000" value="0" />
-        <span id="vidTime">0:00</span>
+        <span class="time" id="vidTime">0:00</span>
+      </div>
+      <div class="bar" id="autoBar" hidden>
+        <button class="pill-btn" id="btnAutoPlay"><span data-icon="play"></span><span>Auto-play</span></button>
+        <select class="mini-select" id="autoInterval" title="Seconds per slide">
+          <option value="3">3 s</option><option value="5">5 s</option><option value="8">8 s</option><option value="10">10 s</option>
+          <option value="15">15 s</option><option value="20">20 s</option><option value="30">30 s</option><option value="60">60 s</option>
+        </select>
+        <label class="small muted"><input type="checkbox" id="autoLoop" /> Loop</label>
+        <div class="grow"></div>
+        <span class="time" id="autoStatus"></span>
+      </div>
+      <div class="bar ticker-bar">
+        <input type="text" id="tickerText" placeholder="Scrolling message (e.g. Car park full — please use the side entrance)" />
+        <button class="pill-btn" id="btnTicker" title="Show / hide the scrolling message"><span data-icon="ticker"></span><span>Scroll</span></button>
       </div>
       <div class="slides" id="liveSlides"></div>
     </section>
@@ -89,6 +107,7 @@
       <button class="lib-tab active" data-tab="songs"><span data-icon="music"></span>Songs</button>
       <button class="lib-tab" data-tab="bible"><span data-icon="book"></span>Bible</button>
       <button class="lib-tab" data-tab="media"><span data-icon="image"></span>Media</button>
+      <button class="lib-tab" data-tab="slides"><span data-icon="layers"></span>Slide groups</button>
     </nav>
 
     <!-- Songs -->
@@ -97,6 +116,7 @@
         <label class="search"><span data-icon="search"></span><input id="songSearch" placeholder="Search songs by title or lyrics…" /></label>
         <button class="btn primary" id="btnNewSong"><span data-icon="plus"></span>New song</button>
         <button class="btn" id="btnImportSongs"><span data-icon="upload"></span>Import .txt</button>
+        <button class="btn" id="btnImportEW"><span data-icon="download"></span>From EasyWorship</button>
         <div class="grow"></div>
         <span class="count" id="songCount"></span>
       </div>
@@ -107,7 +127,7 @@
     <div class="lib-page" data-page="bible">
       <div class="lib-toolbar">
         <select id="bibleSelect" class="select"></select>
-        <label class="search big"><span data-icon="search"></span><input id="bibleSearch" placeholder="Type a reference (John 3:16, Ps 23, 1 Cor 13:4-7) or words (love never fails)…" /></label>
+        <label class="search big"><span data-icon="search"></span><input id="bibleSearch" placeholder="Type a reference (John 3:16, Ps 23, 1 Cor 13:4-7) or words (love never fails)… then Enter" /></label>
         <button class="btn" id="btnBibleAdd"><span data-icon="plus"></span>Service</button>
       </div>
       <div class="bible-body">
@@ -116,7 +136,7 @@
           <div class="chapters" id="chapterList"></div>
         </div>
         <div class="verses-wrap">
-          <div class="verses-head"><b id="versesTitle">Choose a book</b><span class="muted" id="versesHint">Click a verse to preview · Shift-click for a range · Double-click to go live</span></div>
+          <div class="verses-head"><b id="versesTitle">Choose a book</b><span class="muted small">Click a verse to preview · Shift-click for a range · Double-click to go live</span></div>
           <div class="verses" id="verseList"></div>
         </div>
       </div>
@@ -137,6 +157,17 @@
       </div>
       <div class="media-grid" id="mediaGrid"></div>
     </div>
+
+    <!-- Slide groups -->
+    <div class="lib-page" data-page="slides">
+      <div class="lib-toolbar">
+        <label class="search"><span data-icon="search"></span><input id="groupSearch" placeholder="Search slide groups…" /></label>
+        <span class="muted small">Drop a PDF, PowerPoint or several pictures anywhere in the window to make a slide group.</span>
+        <div class="grow"></div>
+        <button class="btn primary" id="btnNewGroup"><span data-icon="plus"></span>New slide group</button>
+      </div>
+      <div class="media-grid" id="groupGrid"></div>
+    </div>
   </section>
 
   <!-- Song editor -->
@@ -155,7 +186,7 @@
             <label class="field"><span>Author</span><input id="edAuthor" placeholder="Optional" /></label>
             <label class="field"><span>Copyright / CCLI</span><input id="edCopyright" placeholder="Optional" /></label>
           </div>
-          <label class="field grow-field"><span>Lyrics <em>Leave a blank line between slides. Put “Verse 1”, “Chorus”, “Bridge” on its own line to label a slide.</em></span>
+          <label class="field grow-field"><span>Lyrics <em>Blank line = new slide. “Verse 1”, “Chorus”, “Bridge” on their own line label a slide. “---” splits a slide.</em></span>
             <textarea id="edLyrics" spellcheck="true" placeholder="Verse 1&#10;Amazing grace how sweet the sound&#10;That saved a wretch like me&#10;&#10;Chorus&#10;My chains are gone&#10;I've been set free"></textarea>
           </label>
           <div class="field">
@@ -199,8 +230,50 @@
     </div>
   </dialog>
 
+  <!-- Library folder (first run + settings) -->
+  <dialog class="modal narrow" id="libraryDialog">
+    <div class="modal-inner">
+      <div class="modal-head">
+        <span class="badge" data-icon="folder"></span>
+        <h2 id="libDlgTitle">Where should we keep your songs?</h2>
+      </div>
+      <p class="muted">Your songs, media list, slide groups and settings are saved in one folder. Pick somewhere you back up — you can change it later in Settings.</p>
+      <div class="modal-body">
+        <button class="choice" id="libUseDefault"><span class="badge" data-icon="folder"></span><span><b>Use my Documents folder (recommended)</b><small id="libDefaultPath"></small></span></button>
+        <button class="choice" id="libChoose"><span class="badge" data-icon="search"></span><span><b>Choose another folder…</b><small>A USB stick, OneDrive / Dropbox folder, or a shared church drive</small></span></button>
+      </div>
+      <div class="modal-foot"><span class="muted small">If the folder already has a Slides Forever library, we’ll open it.</span></div>
+    </div>
+  </dialog>
+
+  <!-- EasyWorship import -->
+  <dialog class="modal" id="ewDialog">
+    <div class="modal-inner">
+      <div class="modal-head">
+        <span class="badge" data-icon="download"></span>
+        <h2>Import songs from EasyWorship</h2>
+        <div class="grow"></div>
+        <button class="icon-btn" data-close title="Close"><span data-icon="x"></span></button>
+      </div>
+      <div class="modal-body">
+        <div id="ewFound"></div>
+        <div class="help">
+          <b>Songs on the church computer?</b> EasyWorship 6, 7 and 8 keep songs in<br />
+          <code>C:\Users\Public\Documents\Softouch\Easyworship\Default\v6.1\Databases\Data</code><br />
+          Copy that whole <b>Data</b> folder to a USB stick, plug it in here and click <b>Browse for Songs.db</b>. Nothing in EasyWorship is changed.
+        </div>
+        <div class="checks"><label><input type="checkbox" id="ewReplace" /> Replace songs that already have the same title</label></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" id="ewBrowse"><span data-icon="folder"></span>Browse for Songs.db…</button>
+        <div class="grow"></div>
+        <button class="btn" data-close>Close</button>
+      </div>
+    </div>
+  </dialog>
+
   <!-- Settings -->
-  <dialog class="modal" id="settingsDialog">
+  <dialog class="modal wide" id="settingsDialog">
     <div class="modal-inner">
       <div class="modal-head">
         <span class="badge" data-icon="sliders"></span>
@@ -210,6 +283,8 @@
       </div>
       <div class="settings">
         <div class="settings-col">
+          <h3>App colours</h3>
+          <div class="themes" id="themePicker"></div>
           <h3>Text style</h3>
           <div class="field-row">
             <label class="field"><span>Font</span>
@@ -234,26 +309,45 @@
             <label><input type="checkbox" id="stShadow" /> Text shadow</label>
             <label><input type="checkbox" id="stUpper" /> ALL CAPS</label>
           </div>
-          <label class="field"><span>Fade speed <b id="stFadeVal"></b></span><input type="range" id="stFade" min="0" max="1.5" step="0.05" /></label>
+          <div class="field-row">
+            <label class="field"><span>Transition</span>
+              <select id="stTransition" class="select"><option value="fade">Fade</option><option value="slide">Slide</option><option value="zoom">Zoom</option><option value="wipe">Wipe</option><option value="blur">Blur</option><option value="cut">Cut (instant)</option></select>
+            </label>
+            <label class="field"><span>Speed <b id="stFadeVal"></b></span><input type="range" id="stFade" min="0.1" max="1.5" step="0.05" /></label>
+          </div>
           <div class="stage small-stage" id="stylePreview"></div>
         </div>
         <div class="settings-col">
+          <h3>Your library folder</h3>
+          <div class="lib-path"><span data-icon="folder"></span><code id="libPath"></code><button class="btn" id="btnOpenLib">Open</button></div>
+          <button class="btn" id="btnChangeLib"><span data-icon="folder"></span>Change folder…</button>
+          <p class="muted small" id="libNote"></p>
+          <h3>Standby screen</h3>
+          <div class="field"><span>Picture, video or slide shown on Standby <em>(leave empty for your logo)</em></span><div class="bg-picker" id="setStandby"></div></div>
+          <label class="field"><span>Standby message <em>(optional, shown over the background)</em></span><input id="setStandbyText" placeholder="e.g. Welcome! Service starts at 10:30" /></label>
+          <div class="checks"><label><input type="checkbox" id="setStandbyIdle" /> Show standby whenever nothing is live</label></div>
+          <h3>Scrolling message</h3>
+          <div class="field-row">
+            <label class="field"><span>Speed</span><select id="tkSpeed" class="select"><option value="60">Slow</option><option value="110">Normal</option><option value="180">Fast</option></select></label>
+            <label class="field"><span>Position</span><select id="tkPosition" class="select"><option value="bottom">Bottom</option><option value="top">Top</option></select></label>
+          </div>
+          <div class="field-row">
+            <label class="field"><span>Bar colour</span><input type="color" id="tkBg" /></label>
+            <label class="field"><span>Text colour</span><input type="color" id="tkColor" /></label>
+          </div>
           <h3>Backgrounds</h3>
           <div class="field"><span>Default song background</span><div class="bg-picker" id="setSongBg"></div></div>
           <div class="field"><span>Default scripture background</span><div class="bg-picker" id="setScriptureBg"></div></div>
-          <div class="field"><span>Logo (shown with the Logo button)</span><div class="bg-picker" id="setLogo"></div></div>
           <h3>Bible</h3>
           <label class="field"><span>Verses per slide</span>
             <select id="setVersesPerSlide" class="select"><option value="1">1 verse</option><option value="2">2 verses</option><option value="3">3 verses</option><option value="4">4 verses</option></select>
           </label>
           <button class="btn" id="btnImportBible"><span data-icon="upload"></span>Import another Bible…</button>
-          <p class="muted small">Accepts JSON Bible files or text files with one verse per line (e.g. <code>John 3:16 For God so loved…</code>).</p>
-          <h3>Your data</h3>
-          <p class="muted small">Songs, media list and settings are saved in:<br /><code id="dataFolder"></code><br />Tip: create a folder named <code>ShineData</code> next to Shine.exe to run it portable from a USB stick.</p>
+          <p class="muted small">JSON Bible files or text files with one verse per line (e.g. <code>John 3:16 For God so loved…</code>).</p>
         </div>
       </div>
       <div class="modal-foot">
-        <span class="muted small"><span data-icon="keyboard"></span> Enter = go live · ← → = slides · B = black · C = clear · L = logo · Esc = clear all</span>
+        <span class="muted small">Enter = go live · ← → = slides · B = black · C = clear · S = standby · T = scrolling message · Esc = clear all</span>
         <div class="grow"></div>
         <button class="btn primary" data-close><span data-icon="check"></span>Done</button>
       </div>
@@ -278,6 +372,10 @@
     </div>
   </dialog>
 
+  <div class="drop-overlay" id="dropOverlay" hidden>
+    <div class="drop-card"><span data-icon="upload"></span><b>Drop to add</b><span>PDF &amp; PowerPoint → slide group · pictures → slide group · videos &amp; GIFs → media · .txt → songs</span></div>
+  </div>
+  <div class="busy" id="busy" hidden><div class="busy-card"><div class="spinner"></div><span id="busyText">Working…</span></div></div>
   <div class="ctx-menu" id="ctxMenu" hidden></div>
   <div class="toasts" id="toasts"></div>
 

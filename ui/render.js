@@ -2,7 +2,7 @@
 (function () {
   const S = (window.Shine = window.Shine || {});
 
-  S.src = (path) => (path ? window.__TAURI__.core.convertFileSrc(path) : '');
+  S.src = (path) => (!path ? '' : path.startsWith('app:') ? path.slice(4) : window.__TAURI__.core.convertFileSrc(path));
 
   S.esc = (s) =>
     String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -86,10 +86,15 @@
 
   /** Shrink text until it fits its box. Size is in cqh. */
   S.fit = function (body, size) {
+    const wrap = body.parentElement;
     let s = size;
     body.style.fontSize = s + 'cqh';
     for (let i = 0; i < 24; i++) {
-      if (body.scrollHeight <= body.clientHeight + 1 && body.scrollWidth <= body.clientWidth + 1) break;
+      // measure against the space the slide actually has, not the text's own (auto) height
+      const cap = body.nextElementSibling;
+      const gap = parseFloat(getComputedStyle(wrap).rowGap) || 0;
+      const avail = wrap.clientHeight - (cap && cap.textContent ? cap.offsetHeight + gap : 0);
+      if (body.scrollHeight <= avail + 2 && body.scrollWidth <= body.clientWidth + 2) break;
       s *= 0.92;
       body.style.fontSize = s + 'cqh';
     }
@@ -105,7 +110,8 @@
     if (!slide) return;
     const bgLayer = document.createElement('div');
     bgLayer.className = 'sl-bg';
-    if (slide.kind !== 'media') bgLayer.append(S.bgElement(slide.bg, opts));
+    if (slide.kind === 'brand') bgLayer.append(S.brandElement());
+    else if (slide.kind !== 'media') bgLayer.append(S.bgElement(slide.bg, opts));
     host.append(bgLayer);
     if (slide.kind === 'media' && slide.media) {
       const m = document.createElement('div');
@@ -119,8 +125,8 @@
         host.append(b);
       }
     }
-    if (slide.kind === 'text' && !opts.hideText) {
-      const t = S.textElement(slide, opts.style);
+    if ((slide.kind === 'text' || (slide.kind === 'brand' && slide.text)) && !opts.hideText) {
+      const t = S.textElement(slide, slide.kind === 'brand' ? { ...opts.style, position: 'bottom', shadow: false, color: '#3a2718' } : opts.style);
       host.append(t);
       requestAnimationFrame(t._fit);
     }
@@ -129,6 +135,40 @@
       l.className = 'sl-label';
       l.textContent = slide.label;
       host.append(l);
+    }
+  };
+
+  /** Default standby / logo screen. */
+  S.brandElement = function () {
+    const d = document.createElement('div');
+    d.className = 'sl-brand';
+    d.innerHTML = '<img src="logo.png" alt="" draggable="false">';
+    return d;
+  };
+
+  /** Scrolling message bar. Re-renders only when the message or its style changes. */
+  S.renderTicker = function (host, t) {
+    const key = t && t.on && t.text ? JSON.stringify(t) : '';
+    if (host._tk === key) return;
+    host._tk = key;
+    host.querySelectorAll(':scope > .sl-ticker').forEach((x) => x.remove());
+    if (!key) return;
+    const bar = document.createElement('div');
+    bar.className = 'sl-ticker pos-' + (t.position === 'top' ? 'top' : 'bottom');
+    bar.style.background = t.bg || '#2a1d13';
+    bar.style.color = t.color || '#ffffff';
+    const span = document.createElement('span');
+    span.textContent = t.text;
+    bar.append(span);
+    host.append(bar);
+    {
+      const W = host.clientWidth || 1;
+      const H = host.clientHeight || 1;
+      const w = span.offsetWidth;
+      const pxPerSec = (t.speed || 110) * (H / 1080);
+      span.style.setProperty('--from', W + 'px');
+      span.style.setProperty('--to', -w + 'px');
+      span.style.setProperty('--dur', Math.max(4, (W + w) / pxPerSec) + 's');
     }
   };
 
@@ -169,6 +209,9 @@
     keyboard: '<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M6 13h.01M18 13h.01M8 16h8"/>',
     gif: '<rect x="2" y="5" width="20" height="14" rx="3"/><path d="M8.5 10.5H7a1.5 1.5 0 0 0 0 3h1.5v-1.5M12 10v4M16 14v-4h2M16 12h1.5"/>',
     text: '<path d="M4 7V4h16v3M9 20h6M12 4v16"/>',
+    download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>',
+    ticker: '<rect x="2" y="7" width="20" height="10" rx="2"/><path d="M6 12h8M17 10l2 2-2 2"/>',
+    slides: '<rect x="3" y="6" width="14" height="10" rx="2"/><path d="M7 3h12a2 2 0 0 1 2 2v9"/><path d="M8 19h8"/>',
     loop: '<path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14M7 22l-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/>',
   };
   S.icon = (name, cls = '') =>

@@ -1,4 +1,4 @@
-// Shine operator window.
+// Slides Forever operator window.
 (() => {
   const { invoke } = window.__TAURI__.core;
   const { listen } = window.__TAURI__.event;
@@ -13,20 +13,25 @@
     fade: 0.4,
     songBg: null,
     scriptureBg: null,
-    logo: null,
     versesPerSlide: 1,
     bible: 0,
     outputDisplay: null,
     seeded: false,
+    theme: 'sand',
+    transition: 'fade',
+    standby: { mediaId: null, slide: null, text: '' },
+    standbyIdle: true,
+    ticker: { text: '', on: false, speed: 110, position: 'bottom', bg: '#2a1d13', color: '#ffffff' },
   };
 
   const st = {
-    songs: [], media: [], settings: structuredClone(DEFAULT_SETTINGS), schedule: [],
+    songs: [], media: [], groups: [], settings: structuredClone(DEFAULT_SETTINGS), schedule: [],
     missing: new Set(),
     bibles: [], books: [], book: null, chapter: null,
     verses: [], verseSel: new Set(), verseAnchor: null, verseMode: 'chapter',
     preview: null, live: null,
-    black: false, clear: false, logo: false,
+    black: false, clear: false, standby: false,
+    auto: { on: false, timer: null, next: 0 },
     outputOn: false, displays: [], pendingDisplay: null,
     selSong: null, selMedia: null, schedSel: null, mediaKind: 'all',
     ver: 0,
@@ -45,6 +50,7 @@
 
   const saveTimers = {};
   function save(name) {
+    if (st.unconfigured) return; // first run: nothing is written until a library folder is chosen
     clearTimeout(saveTimers[name]);
     saveTimers[name] = setTimeout(() => {
       invoke('save_doc', { name, value: st[name] }).catch((e) => toast('Could not save ' + name + ': ' + e, true));
@@ -166,28 +172,49 @@
       if (!m) return [];
       return [{ kind: 'media', media: { type: m.kind, path: m.path, loop: m.loop !== false }, label: m.name }];
     }
+    if (item.type === 'group') {
+      const g = groupById(item.id);
+      if (!g) return [];
+      return g.pages.map((p, i) => ({ kind: 'media', media: { type: /\.gif$/i.test(p) ? 'gif' : 'image', path: p }, label: `Slide ${i + 1}` }));
+    }
     return [];
   }
+  const groupById = (id) => st.groups.find((g) => g.id === id);
 
   function itemTitle(item) {
     if (item.type === 'song') return songById(item.id)?.title || '(deleted song)';
     if (item.type === 'scripture') return `${item.title} (${item.bibleName})`;
     if (item.type === 'media') return mediaById(item.id)?.name || '(missing media)';
+    if (item.type === 'group') return groupById(item.id)?.name || '(deleted slide group)';
     return '';
   }
   function itemSub(item) {
     if (item.type === 'song') { const s = songById(item.id); return s ? `${songSections(s.lyrics).length} slides` : ''; }
     if (item.type === 'scripture') return `${item.verses.length} verse${item.verses.length > 1 ? 's' : ''}`;
     if (item.type === 'media') { const m = mediaById(item.id); return m ? { image: 'Image', video: 'Video', gif: 'GIF' }[m.kind] : ''; }
+    if (item.type === 'group') { const g = groupById(item.id); return g ? `${g.pages.length} slides${g.interval ? ` · auto ${g.interval}s` : ''}` : ''; }
     return '';
   }
-  const kindIcon = (item) => ({ song: 'music', scripture: 'book', media: 'image' })[item.type];
-  const sameItem = (a, b) => !!a && !!b && (a.uid && b.uid ? a.uid === b.uid : a.type === b.type && a.id === b.id && a.title === b.title && !a.uid === !b.uid);
+  const kindIcon = (item) => ({ song: 'music', scripture: 'book', media: 'image', group: 'slides' })[item.type];
+  const kindClass = (item) => (item.type === 'group' ? 'slides' : item.type);
 
-  function logoSlide() {
-    const bg = bgFrom(st.settings.logo);
-    if (bg) return { kind: 'media', media: { ...bg, loop: true } };
-    return { kind: 'text', text: '', bg: { type: 'gradient' } };
+  /** What the Standby button (and an idle output) shows. */
+  function standbySlide() {
+    const sb = st.settings.standby || {};
+    if (sb.slide) return sb.slide;
+    const m = sb.mediaId && mediaById(sb.mediaId);
+    if (m) {
+      if (m.kind === 'video' || !sb.text) return sb.text ? { kind: 'text', text: sb.text, bg: { type: m.kind, path: m.path } } : { kind: 'media', media: { type: m.kind, path: m.path, loop: true } };
+      return { kind: 'text', text: sb.text, bg: { type: m.kind, path: m.path } };
+    }
+    return { kind: 'brand', text: sb.text || '' };
+  }
+  function setStandbySlide(slide) {
+    st.settings.standby = { ...(st.settings.standby || {}), slide: structuredClone(slide), mediaId: null };
+    save('settings');
+    renderSettings();
+    pushLive();
+    toast('Standby screen updated — press S or Standby to show it');
   }
 
   // ---------- preview ----------
@@ -201,6 +228,7 @@
     if (host._key === key) return;
     host._key = key;
     S.renderSlide(host, slide, { style: st.settings.style, muted: true, ...opts });
+    host._tk = null;
   }
 
   function renderThumbs(host, p, which) {
@@ -239,15 +267,20 @@
   }
 
   // ---------- live ----------
+  /** True when the output should show the standby screen. */
+  const showingStandby = () => st.standby || (!st.live && st.settings.standbyIdle);
+
   function livePayload() {
     const L = st.live;
     return {
       slide: L ? L.slides[L.index] || null : null,
       black: st.black,
       clear: st.clear,
-      logo: st.logo ? logoSlide() : null,
+      standby: showingStandby() ? standbySlide() : null,
       style: st.settings.style,
       fade: st.settings.fade,
+      transition: st.settings.transition,
+      ticker: st.settings.ticker,
     };
   }
 
@@ -258,28 +291,74 @@
 
   function renderLive() {
     const L = st.live;
-    $('#liveTitle').textContent = L ? itemTitle(L.item) : 'Nothing live';
-    $('#livePanel').classList.toggle('is-live', st.outputOn && !!L && !st.black);
+    $('#liveTitle').textContent = st.standby ? 'Standby screen' : L ? itemTitle(L.item) : st.settings.standbyIdle ? 'Standby (nothing live)' : 'Nothing live';
+    $('#livePanel').classList.toggle('is-live', st.outputOn && !st.black);
     let slide = L ? L.slides[L.index] : null;
-    if (st.logo) slide = logoSlide();
+    if (showingStandby()) slide = standbySlide();
     if (st.black) slide = null;
-    renderStage($('#liveStage'), slide, { hideText: st.clear && !st.logo });
+    const stage = $('#liveStage');
+    renderStage(stage, slide, { hideText: st.clear && !showingStandby() });
+    S.renderTicker(stage, st.black ? null : st.settings.ticker);
     renderThumbs($('#liveSlides'), L, 'live');
     $('#btnBlack').classList.toggle('on', st.black);
     $('#btnClearText').classList.toggle('on', st.clear);
-    $('#btnLogo').classList.toggle('on', st.logo);
+    $('#btnStandby').classList.toggle('on', st.standby);
     const cur = L && L.slides[L.index];
-    const isVideo = !!cur && cur.kind === 'media' && cur.media.type === 'video' && !st.black && !st.logo;
+    const isVideo = !!cur && cur.kind === 'media' && cur.media.type === 'video' && !st.black && !st.standby;
     $('#videoBar').hidden = !isVideo;
+    const g = L && L.item.type === 'group' && groupById(L.item.id);
+    $('#autoBar').hidden = !g;
+    if (g) {
+      $('#autoInterval').value = String(g.interval || 5);
+      $('#autoLoop').checked = g.loop !== false;
+      $('#btnAutoPlay').classList.toggle('on', st.auto.on);
+      setIcon($('#btnAutoPlay [data-icon]'), st.auto.on ? 'pause' : 'play');
+      $('#btnAutoPlay span:last-child').textContent = st.auto.on ? 'Playing' : 'Auto-play';
+    }
+    $('#btnTicker').classList.toggle('on', !!st.settings.ticker.on);
+    $('#liveTransition').value = st.settings.transition;
     $$('#schedule li').forEach((li) => li.classList.toggle('is-live', !!L && li.dataset.uid === L.item.uid));
+  }
+
+  // ---- slide group auto-play ----
+  function stopAuto() {
+    clearInterval(st.auto.timer);
+    st.auto.on = false;
+    st.auto.timer = null;
+    $('#autoStatus').textContent = '';
+  }
+  function startAuto() {
+    const L = st.live;
+    const g = L && L.item.type === 'group' && groupById(L.item.id);
+    if (!g) return;
+    clearInterval(st.auto.timer);
+    st.auto.on = true;
+    const secs = g.interval || 5;
+    st.auto.next = Date.now() + secs * 1000;
+    st.auto.timer = setInterval(() => {
+      if (!st.live || st.live.item.type !== 'group') return stopAuto(), renderLive();
+      const left = Math.ceil((st.auto.next - Date.now()) / 1000);
+      $('#autoStatus').textContent = `next in ${Math.max(0, left)}s`;
+      if (Date.now() < st.auto.next) return;
+      const last = st.live.index >= st.live.slides.length - 1;
+      if (last && g.loop === false) { stopAuto(); renderLive(); return; }
+      st.live.index = last ? 0 : st.live.index + 1;
+      st.auto.next = Date.now() + (g.interval || 5) * 1000;
+      st.black = st.standby = false;
+      pushLive();
+    }, 250);
+    renderLive();
   }
 
   async function goLive(index) {
     const p = st.preview;
     if (!p || !p.slides.length) return;
+    stopAuto();
     st.live = { item: p.item, slides: p.slides, index: index ?? p.index };
-    st.black = st.clear = st.logo = false;
+    st.black = st.clear = st.standby = false;
     await ensureOutput(false);
+    const g = p.item.type === 'group' && groupById(p.item.id);
+    if (g && g.interval) startAuto();
     pushLive();
   }
 
@@ -287,7 +366,8 @@
     const L = st.live;
     if (!L) return;
     L.index = Math.max(0, Math.min(L.slides.length - 1, i));
-    st.logo = false; st.black = false;
+    st.standby = false; st.black = false;
+    if (st.auto.on) st.auto.next = Date.now() + ((groupById(L.item.id)?.interval || 5) * 1000);
     pushLive();
   }
 
@@ -301,13 +381,23 @@
 
   function toggleMode(mode) {
     st[mode] = !st[mode];
-    if (mode === 'black' && st.black) st.logo = false;
-    if (mode === 'logo' && st.logo) st.black = false;
+    if (mode === 'black' && st.black) st.standby = false;
+    if (mode === 'standby' && st.standby) st.black = false;
     pushLive();
   }
 
   function clearAll() {
-    st.live = null; st.black = st.clear = st.logo = false;
+    stopAuto();
+    st.live = null; st.black = st.clear = st.standby = false;
+    pushLive();
+  }
+
+  function toggleTicker(force) {
+    const t = st.settings.ticker;
+    t.text = $('#tickerText').value.trim();
+    t.on = force ?? !t.on;
+    if (t.on && !t.text) { t.on = false; toast('Type a scrolling message first'); $('#tickerText').focus(); }
+    save('settings');
     pushLive();
   }
 
@@ -399,7 +489,7 @@
       });
       const tags = [];
       if (st.outputOn && d.id === st.settings.outputDisplay) tags.push('<i class="live">LIVE</i>');
-      if (d.hasControl) tags.push('<i>Shine is here</i>');
+      if (d.hasControl) tags.push('<i>Controls are here</i>');
       if (d.primary) tags.push('<i>Main</i>');
       b.innerHTML = `<span class="n">${d.number}</span><span class="nm">${esc(d.name)}</span><span class="tags">${tags.join('')}</span>`;
       b.onclick = () => { st.pendingDisplay = d.id; renderDisplayMap(); };
@@ -409,7 +499,7 @@
     const d = ds.find((x) => x.id === st.pendingDisplay);
     $('#displayDetail').innerHTML = d
       ? `<div class="big">${d.number}. ${esc(d.name)}</div><div class="facts"><span>${d.width} × ${d.height}</span>${d.connection ? `<span>${esc(d.connection)}</span>` : ''}<span>Scale ${Math.round(d.scale * 100)}%</span>${d.primary ? '<span>Main display</span>' : ''}</div>
-         ${d.hasControl ? '<div class="warn">Shine’s control window is on this screen — the output will cover it. Press Esc on the output to close it.</div>' : ''}`
+         ${d.hasControl ? '<div class="warn">The Slides Forever control window is on this screen — the output will cover it. Press Esc on the output to close it.</div>' : ''}`
       : '';
   }
 
@@ -439,7 +529,7 @@
       li.dataset.uid = item.uid;
       li.dataset.i = i;
       li.draggable = true;
-      li.innerHTML = `<span class="grip">${S.icon('grip')}</span><span class="kind ${item.type}">${S.icon(kindIcon(item))}</span>
+      li.innerHTML = `<span class="grip">${S.icon('grip')}</span><span class="kind ${kindClass(item)}">${S.icon(kindIcon(item))}</span>
         <span class="txt"><b>${esc(itemTitle(item))}</b><small>${esc(itemSub(item))}</small></span>
         <button class="icon-btn rm" title="Remove">${S.icon('x')}</button>`;
       if (st.preview && st.preview.item.uid === item.uid) li.classList.add('sel');
@@ -551,7 +641,7 @@
   function showTab(name) {
     $$('.lib-tab').forEach((x) => x.classList.toggle('active', x.dataset.tab === name));
     $$('.lib-page').forEach((x) => x.classList.toggle('active', x.dataset.page === name));
-    const input = { songs: '#songSearch', bible: '#bibleSearch', media: '#mediaSearch' }[name];
+    const input = { songs: '#songSearch', bible: '#bibleSearch', media: '#mediaSearch', slides: '#groupSearch' }[name];
     setTimeout(() => $(input)?.focus(), 0);
   }
 
@@ -979,7 +1069,7 @@
       const tags = [];
       if (st.settings.songBg === m.id) tags.push('<i>Song BG</i>');
       if (st.settings.scriptureBg === m.id) tags.push('<i>Bible BG</i>');
-      if (st.settings.logo === m.id) tags.push('<i>Logo</i>');
+      if (st.settings.standby?.mediaId === m.id) tags.push('<i>Standby</i>');
       if (st.missing.has(m.path)) tags.push('<i style="background:#d0213c">File missing</i>');
       t.insertAdjacentHTML('beforeend', `<span class="tags">${tags.join('')}</span>
         <button class="icon-btn more" title="More">${S.icon('sliders')}</button>
@@ -1005,7 +1095,7 @@
       '-',
       { icon: 'music', label: st.settings.songBg === m.id ? '✓ Default song background' : 'Use as default song background', action: () => setSetting('songBg', st.settings.songBg === m.id ? null : m.id) },
       { icon: 'book', label: st.settings.scriptureBg === m.id ? '✓ Default scripture background' : 'Use as default scripture background', action: () => setSetting('scriptureBg', st.settings.scriptureBg === m.id ? null : m.id) },
-      { icon: 'star', label: st.settings.logo === m.id ? '✓ Logo' : 'Use as logo', action: () => setSetting('logo', st.settings.logo === m.id ? null : m.id) },
+      { icon: 'pause', label: st.settings.standby?.mediaId === m.id ? '✓ Standby screen' : 'Use as standby screen', action: () => setStandbyMedia(st.settings.standby?.mediaId === m.id ? null : m.id) },
     ];
     const ps = st.preview?.item.type === 'song' && songById(st.preview.item.id);
     if (ps) items.push({ icon: 'layers', label: `Background for “${ps.title}”`, action: () => { ps.bg = m.id; save('songs'); refreshItems(); toast('Background set'); } });
@@ -1016,7 +1106,8 @@
   async function removeMedia(m) {
     if (!(await ask(`Remove “${m.name}” from the media library? The file on your computer is not deleted.`, 'Remove'))) return;
     st.media = st.media.filter((x) => x.id !== m.id);
-    for (const k of ['songBg', 'scriptureBg', 'logo']) if (st.settings[k] === m.id) st.settings[k] = null;
+    for (const k of ['songBg', 'scriptureBg']) if (st.settings[k] === m.id) st.settings[k] = null;
+    if (st.settings.standby?.mediaId === m.id) st.settings.standby.mediaId = null;
     st.songs.forEach((s) => { if (s.bg === m.id) s.bg = null; });
     st.schedule = st.schedule.filter((i) => !(i.type === 'media' && i.id === m.id));
     save('media'); save('settings'); save('songs'); save('schedule');
@@ -1070,12 +1161,61 @@
     $('#stFade').value = st.settings.fade;
     $('#stFadeVal').textContent = st.settings.fade + 's';
     $('#setVersesPerSlide').value = String(st.settings.versesPerSlide);
-    renderBgPicker($('#setSongBg'), st.settings.songBg, 'Blue gradient (built in)', (id) => setSetting('songBg', id), 'Default song background');
-    renderBgPicker($('#setScriptureBg'), st.settings.scriptureBg, 'Blue gradient (built in)', (id) => setSetting('scriptureBg', id), 'Default scripture background');
-    renderBgPicker($('#setLogo'), st.settings.logo, 'Blue gradient (built in)', (id) => setSetting('logo', id), 'Choose logo');
+    $('#stTransition').value = st.settings.transition;
+    const sb = st.settings.standby;
+    $('#setStandbyText').value = sb.text || '';
+    $('#setStandbyIdle').checked = !!st.settings.standbyIdle;
+    const tk = st.settings.ticker;
+    $('#tkSpeed').value = String(tk.speed);
+    $('#tkPosition').value = tk.position;
+    $('#tkBg').value = tk.bg;
+    $('#tkColor').value = tk.color;
+    renderBgPicker($('#setSongBg'), st.settings.songBg, 'Built-in gradient', (id) => setSetting('songBg', id), 'Default song background');
+    renderBgPicker($('#setScriptureBg'), st.settings.scriptureBg, 'Built-in gradient', (id) => setSetting('scriptureBg', id), 'Default scripture background');
+    // standby preview shows the actual standby screen
+    const host = $('#setStandby');
+    renderBgPicker(host, null, sb.slide ? 'A slide you picked' : sb.mediaId ? mediaById(sb.mediaId)?.name || '' : 'Your logo', setStandbyMedia, 'Choose standby picture or video');
+    S.renderSlide(host.querySelector('.sl'), standbySlide(), { thumb: true, style: st.settings.style });
+    $('#themePicker').innerHTML = THEMES.map((t) => `<button class="theme-sw${st.settings.theme === t.id ? ' sel' : ''}" data-theme-id="${t.id}"><i style="background:linear-gradient(135deg, ${t.a} 50%, ${t.b} 50%)"></i>${t.name}</button>`).join('');
     $('#stylePreview')._key = null;
     renderStage($('#stylePreview'), { kind: 'text', text: 'Amazing grace how sweet the sound\nThat saved a wretch like me', bg: bgFrom(st.settings.songBg) });
   }
+  function setStandbyMedia(id) {
+    st.settings.standby = { ...st.settings.standby, mediaId: id, slide: null };
+    save('settings');
+    renderSettings();
+    renderMedia();
+    pushLive();
+  }
+
+  const THEMES = [
+    { id: 'sand', name: 'Warm Sand', a: '#f4eee6', b: '#d2601a' },
+    { id: 'blue', name: 'Royal Blue', a: '#e9f0fd', b: '#1652f0' },
+    { id: 'forest', name: 'Forest', a: '#eef1ea', b: '#2f7d4a' },
+    { id: 'plum', name: 'Plum', a: '#f3eef4', b: '#8a3fb0' },
+    { id: 'midnight', name: 'Midnight', a: '#1c1b1a', b: '#f0a42a' },
+  ];
+  function applyTheme() { document.documentElement.dataset.theme = st.settings.theme || 'sand'; }
+  $('#themePicker').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-theme-id]');
+    if (!b) return;
+    st.settings.theme = b.dataset.themeId;
+    applyTheme();
+    save('settings');
+    renderSettings();
+  });
+  $('#setStandbyText').addEventListener('input', debounce(() => {
+    st.settings.standby = { ...st.settings.standby, text: $('#setStandbyText').value.trim() };
+    if (st.settings.standby.slide) st.settings.standby.slide = null;
+    save('settings'); renderSettings(); pushLive();
+  }, 300));
+  $('#setStandbyIdle').addEventListener('change', (e) => { st.settings.standbyIdle = e.target.checked; save('settings'); pushLive(); });
+  ['#tkSpeed', '#tkPosition', '#tkBg', '#tkColor'].forEach((sel) => $(sel).addEventListener('input', () => {
+    Object.assign(st.settings.ticker, { speed: +$('#tkSpeed').value, position: $('#tkPosition').value, bg: $('#tkBg').value, color: $('#tkColor').value });
+    save('settings'); pushLive();
+  }));
+  $('#stTransition').addEventListener('input', (e) => { st.settings.transition = e.target.value; save('settings'); pushLive(); });
+  $('#liveTransition').addEventListener('input', (e) => { st.settings.transition = e.target.value; save('settings'); pushLive(); });
   const onStyle = () => {
     const s = st.settings.style;
     s.font = $('#stFont').value;
@@ -1095,8 +1235,15 @@
   $('#btnSettings').onclick = async () => {
     renderSettings();
     $('#settingsDialog').showModal();
-    $('#dataFolder').textContent = await invoke('data_folder');
+    const info = await invoke('library_info');
+    $('#libPath').textContent = info.dir;
+    $('#btnChangeLib').disabled = info.portable;
+    $('#libNote').textContent = info.portable
+      ? 'Portable mode: everything is kept in the SlidesForeverData folder next to the app.'
+      : 'Copy this folder to back up your songs, or point another computer at a shared copy of it.';
   };
+  $('#btnOpenLib').onclick = () => invoke('open_folder', { path: $('#libPath').textContent });
+  $('#btnChangeLib').onclick = () => { $('#settingsDialog').close(); openLibraryDialog(false); };
   $('#btnImportBible').onclick = async () => {
     try {
       const name = await invoke('import_bible');
@@ -1115,7 +1262,34 @@
   $('#btnGoLive').onclick = () => goLive();
   $('#btnBlack').onclick = () => toggleMode('black');
   $('#btnClearText').onclick = () => toggleMode('clear');
-  $('#btnLogo').onclick = () => toggleMode('logo');
+  $('#btnStandby').onclick = () => toggleMode('standby');
+  $('#btnTicker').onclick = () => toggleTicker();
+  $('#tickerText').addEventListener('keydown', (e) => { if (e.key === 'Enter') toggleTicker(true); });
+  $('#tickerText').addEventListener('input', debounce(() => {
+    if (st.settings.ticker.on) { st.settings.ticker.text = $('#tickerText').value.trim(); save('settings'); pushLive(); }
+  }, 600));
+  $('#btnAutoPlay').onclick = () => (st.auto.on ? (stopAuto(), renderLive()) : startAuto());
+  $('#autoInterval').addEventListener('input', (e) => {
+    const g = st.live && groupById(st.live.item.id);
+    if (!g) return;
+    g.interval = +e.target.value;
+    save('groups');
+    if (st.auto.on) startAuto();
+  });
+  $('#autoLoop').addEventListener('change', (e) => {
+    const g = st.live && groupById(st.live.item.id);
+    if (g) { g.loop = e.target.checked; save('groups'); }
+  });
+  function slideMenu(e, p) {
+    const t = e.target.closest('.thumb');
+    if (!t || !p) return;
+    const slide = p.slides[+t.dataset.i];
+    showMenu(e.clientX, e.clientY, [
+      { icon: 'pause', label: 'Use this slide as the standby screen', action: () => setStandbySlide(slide) },
+    ]);
+  }
+  $('#previewSlides').addEventListener('contextmenu', (e) => slideMenu(e, st.preview));
+  $('#liveSlides').addEventListener('contextmenu', (e) => slideMenu(e, st.live));
   $('#previewSlides').addEventListener('click', (e) => {
     const t = e.target.closest('.thumb');
     if (t && st.preview) { st.preview.index = +t.dataset.i; renderPreview(); }
@@ -1149,7 +1323,8 @@
     else if (k === 'Enter') goLive();
     else if (k === 'b' || k === 'B' || k === '.') toggleMode('black');
     else if (k === 'c' || k === 'C') toggleMode('clear');
-    else if (k === 'l' || k === 'L') toggleMode('logo');
+    else if (k === 's' || k === 'S') toggleMode('standby');
+    else if (k === 't' || k === 'T') toggleTicker();
     else if (k === 'Escape') clearAll();
     else if (k === 'Home') st.live && setLiveIndex(0);
     else if (k === 'End') st.live && setLiveIndex(st.live.slides.length - 1);
@@ -1159,6 +1334,264 @@
     else return;
     e.preventDefault();
   });
+
+  // ---------- busy overlay ----------
+  async function busy(text, fn) {
+    $('#busyText').textContent = text;
+    $('#busy').hidden = false;
+    try { return await fn(); } finally { $('#busy').hidden = true; }
+  }
+
+  // ---------- slide groups ----------
+  const stemOf = (p) => p.split(/[\\/]/).pop().replace(/\.[^.]+$/, '');
+  async function createGroup(paths, name) {
+    if (!paths.length) return null;
+    const id = uid().replace(/[^a-z0-9]/gi, '');
+    const isPpt = paths.some((p) => /\.(pptx?|ppsx?|pptm|odp)$/i.test(p));
+    const label = isPpt ? 'Converting PowerPoint slides… (PowerPoint may open briefly)' : paths.some((p) => /\.pdf$/i.test(p)) ? 'Turning PDF pages into slides…' : 'Building slide group…';
+    try {
+      const pages = await busy(label, () => invoke('make_slide_group', { id, paths }));
+      const g = { id, name: name || stemOf(paths[0]), pages, interval: 0, loop: true, created: Date.now() };
+      await invoke('register_media', { paths: pages });
+      st.groups.push(g);
+      save('groups');
+      renderGroups();
+      showTab('slides');
+      selectGroup(g.id);
+      toast(`Made “${g.name}” with ${pages.length} slide${pages.length === 1 ? '' : 's'}`);
+      return g;
+    } catch (e) {
+      toast(String(e), true);
+      return null;
+    }
+  }
+  $('#btnNewGroup').onclick = async () => {
+    const paths = await invoke('pick_slide_files');
+    if (paths.length) createGroup(paths, paths.length > 1 && !paths.some((p) => /\.(pdf|pptx?|ppsx?|odp)$/i.test(p)) ? 'Picture slides' : undefined);
+  };
+
+  function renderGroups() {
+    const q = $('#groupSearch').value.trim().toLowerCase();
+    const grid = $('#groupGrid');
+    grid.innerHTML = '';
+    for (const g of st.groups.filter((g) => !q || g.name.toLowerCase().includes(q))) {
+      const t = document.createElement('div');
+      t.className = 'tile' + (st.selGroup === g.id ? ' sel' : '');
+      t.dataset.id = g.id;
+      t.draggable = true;
+      const sl = document.createElement('div');
+      t.append(sl);
+      t.insertAdjacentHTML('beforeend', `<span class="tags"><i>${g.pages.length} slides</i>${g.interval ? `<i>Auto ${g.interval}s</i>` : ''}</span>
+        <button class="icon-btn more" title="More">${S.icon('sliders')}</button>
+        <span class="tname">${S.icon('slides')}<span>${esc(g.name)}</span></span>`);
+      S.renderSlide(sl, { kind: 'media', media: { type: 'image', path: g.pages[0] } }, { thumb: true });
+      grid.append(t);
+    }
+    const add = document.createElement('button');
+    add.className = 'add-tile';
+    add.innerHTML = `${S.icon('plus')}New slide group<small>PDF, PowerPoint or pictures</small>`;
+    add.onclick = () => $('#btnNewGroup').click();
+    grid.append(add);
+  }
+  function selectGroup(id) {
+    st.selGroup = id;
+    $$('#groupGrid .tile').forEach((x) => x.classList.toggle('sel', x.dataset.id === id));
+    setPreview({ type: 'group', id });
+  }
+  function groupMenu(x, y, g) {
+    const iv = (s) => ({ icon: 'play', label: (g.interval === s ? '✓ ' : '') + (s ? `Auto-play every ${s} seconds` : 'No auto-play (advance by hand)'), action: () => { g.interval = s; save('groups'); renderGroups(); refreshItems(); } });
+    showMenu(x, y, [
+      { icon: 'arrow', label: 'Go live', action: () => { selectGroup(g.id); goLive(0); } },
+      { icon: 'plus', label: 'Add to service', action: () => addToSchedule({ type: 'group', id: g.id }) },
+      { icon: 'edit', label: 'Rename…', action: () => renameGroup(g) },
+      '-', iv(0), iv(5), iv(8), iv(15),
+      { icon: 'loop', label: g.loop !== false ? '✓ Loop back to the start' : 'Loop back to the start', action: () => { g.loop = g.loop === false; save('groups'); } },
+      '-',
+      { icon: 'trash', label: 'Delete slide group', danger: true, action: () => deleteGroup(g) },
+    ]);
+  }
+  function renameGroup(g) {
+    const t = $(`#groupGrid .tile[data-id="${g.id}"] .tname span`);
+    if (!t) return;
+    t.contentEditable = 'true';
+    t.style.userSelect = 'text';
+    t.focus();
+    document.getSelection().selectAllChildren(t);
+    const done = () => {
+      t.contentEditable = 'false';
+      const v = t.textContent.trim();
+      if (v && v !== g.name) { g.name = v; save('groups'); renderSchedule(); renderPreview(); }
+      renderGroups();
+    };
+    t.addEventListener('blur', done, { once: true });
+    t.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); t.blur(); } e.stopPropagation(); });
+  }
+  async function deleteGroup(g) {
+    if (!(await ask(`Delete the slide group “${g.name}”? Its slide pictures are removed from your library folder (your original PDF / PowerPoint is not touched).`))) return;
+    st.groups = st.groups.filter((x) => x.id !== g.id);
+    st.schedule = st.schedule.filter((i) => !(i.type === 'group' && i.id === g.id));
+    invoke('delete_slide_group', { id: g.id });
+    save('groups'); save('schedule');
+    if (st.preview?.item.id === g.id) st.preview = null;
+    renderGroups(); renderSchedule(); refreshItems();
+  }
+  $('#groupGrid').addEventListener('click', (e) => {
+    const t = e.target.closest('.tile');
+    if (!t) return;
+    const g = groupById(t.dataset.id);
+    if (e.target.closest('.more')) { const r = e.target.closest('.more').getBoundingClientRect(); groupMenu(r.left, r.bottom + 4, g); return; }
+    if (e.target.isContentEditable) return;
+    selectGroup(g.id);
+  });
+  $('#groupGrid').addEventListener('dblclick', (e) => { const t = e.target.closest('.tile'); if (t && !e.target.closest('.more') && !e.target.isContentEditable) { selectGroup(t.dataset.id); goLive(0); } });
+  $('#groupGrid').addEventListener('contextmenu', (e) => { const t = e.target.closest('.tile'); if (t) groupMenu(e.clientX, e.clientY, groupById(t.dataset.id)); });
+  $('#groupGrid').addEventListener('dragstart', (e) => { const t = e.target.closest('.tile'); if (t) dragItem(e, { type: 'group', id: t.dataset.id }); });
+  $('#groupSearch').addEventListener('input', debounce(renderGroups, 120));
+
+  // ---------- drag files in from Explorer ----------
+  let dragDepth = 0;
+  const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+  window.addEventListener('dragenter', (e) => { if (hasFiles(e)) { dragDepth++; $('#dropOverlay').hidden = false; } });
+  window.addEventListener('dragleave', (e) => { if (hasFiles(e) && --dragDepth <= 0) { dragDepth = 0; $('#dropOverlay').hidden = true; } });
+  window.addEventListener('dragover', (e) => { if (hasFiles(e)) e.preventDefault(); });
+  window.addEventListener('drop', async (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    dragDepth = 0;
+    $('#dropOverlay').hidden = true;
+    const files = [...e.dataTransfer.files];
+    if (files.length) await handleDroppedFiles(files);
+  });
+
+  async function saveDropped(file) {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    return invoke('save_dropped', bytes, { headers: { 'x-name': encodeURIComponent(file.name) } });
+  }
+
+  async function handleDroppedFiles(files) {
+    const ext = (f) => (f.name.split('.').pop() || '').toLowerCase();
+    const txt = files.filter((f) => ext(f) === 'txt');
+    const docs = files.filter((f) => ['pdf', 'ppt', 'pptx', 'pps', 'ppsx', 'pptm', 'odp'].includes(ext(f)));
+    const pics = files.filter((f) => ['png', 'jpg', 'jpeg', 'bmp', 'webp', 'avif'].includes(ext(f)));
+    const movs = files.filter((f) => ['mp4', 'm4v', 'webm', 'mov', 'ogv', 'gif'].includes(ext(f)));
+    const skipped = files.length - txt.length - docs.length - pics.length - movs.length;
+    try {
+      if (txt.length) {
+        let n = 0;
+        for (const f of txt) {
+          const s = await invoke('parse_song', { name: f.name.replace(/\.txt$/i, ''), text: await f.text() });
+          if (s.lyrics) { mergeSongs([s], false); n++; }
+        }
+        toast(`Imported ${n} song${n === 1 ? '' : 's'}`);
+      }
+      for (const f of docs) {
+        const path = await busy(`Copying ${f.name}…`, () => saveDropped(f));
+        await createGroup([path], f.name.replace(/\.[^.]+$/, ''));
+      }
+      if (pics.length === 1 && !docs.length) {
+        const path = await saveDropped(pics[0]);
+        addMediaPaths([{ path, name: stemOf(path), kind: 'image' }]);
+      } else if (pics.length) {
+        const paths = await busy('Copying pictures…', () => Promise.all(pics.map(saveDropped)));
+        await createGroup(paths, pics.length === 1 ? stemOf(paths[0]) : 'Picture slides');
+      }
+      if (movs.length) {
+        const saved = await busy(`Copying ${movs.length} file${movs.length === 1 ? '' : 's'}…`, () => Promise.all(movs.map(saveDropped)));
+        addMediaPaths(saved.map((p) => ({ path: p, name: stemOf(p), kind: /\.gif$/i.test(p) ? 'gif' : 'video' })));
+      }
+      if (skipped) toast(`${skipped} file${skipped === 1 ? ' was' : 's were'} skipped (unsupported type)`, true);
+    } catch (err) {
+      toast(String(err), true);
+    }
+  }
+
+  function addMediaPaths(items) {
+    let n = 0;
+    for (const f of items) {
+      if (st.media.some((m) => m.path === f.path)) continue;
+      st.media.push({ id: uid(), name: f.name, path: f.path, kind: f.kind, loop: true });
+      n++;
+    }
+    if (n) { save('media'); renderMedia(); showTab('media'); toast(`Added ${n} item${n === 1 ? '' : 's'} to media`); }
+  }
+
+  // ---------- song merge (txt + EasyWorship) ----------
+  function mergeSongs(list, replace) {
+    let added = 0, updated = 0, skipped = 0;
+    for (const s of list) {
+      const existing = st.songs.find((x) => x.title.toLowerCase() === s.title.toLowerCase());
+      if (existing) {
+        if (replace) { Object.assign(existing, { lyrics: s.lyrics, author: s.author || existing.author, copyright: s.copyright || existing.copyright }); updated++; }
+        else skipped++;
+      } else {
+        st.songs.push({ id: uid(), title: s.title, author: s.author || '', copyright: s.copyright || '', lyrics: s.lyrics || '', bg: null });
+        added++;
+      }
+    }
+    save('songs');
+    renderSongs();
+    refreshItems();
+    return { added, updated, skipped };
+  }
+
+  // ---------- EasyWorship import ----------
+  $('#btnImportEW').onclick = async () => {
+    const host = $('#ewFound');
+    host.innerHTML = '<div class="muted">Looking for EasyWorship on this computer…</div>';
+    $('#ewDialog').showModal();
+    const libs = await invoke('ew_find').catch(() => []);
+    host.innerHTML = libs.length
+      ? libs.map((l, i) => `<div class="ew-row"><span class="badge">${S.icon('music')}</span><span class="txt"><b>${l.songs} song${l.songs === 1 ? '' : 's'} found on this PC</b><code>${esc(l.path)}</code></span>
+          <button class="btn primary" data-ew="${i}" ${l.songs ? '' : 'disabled'}>${S.icon('download')}Import</button></div>`).join('')
+      : `<div class="help"><b>EasyWorship isn’t on this computer</b> (or has no songs yet). Use <b>Browse for Songs.db</b> below.</div>`;
+    host.querySelectorAll('[data-ew]').forEach((b) => (b.onclick = () => runEwImport(libs[+b.dataset.ew].path)));
+  };
+  $('#ewBrowse').onclick = () => runEwImport(null);
+  async function runEwImport(path) {
+    try {
+      const songs = await busy('Reading EasyWorship songs…', () => invoke('ew_import', { path }));
+      if (!songs.length) return;
+      const r = mergeSongs(songs, $('#ewReplace').checked);
+      $('#ewDialog').close();
+      showTab('songs');
+      toast(`EasyWorship: ${r.added} added${r.updated ? `, ${r.updated} updated` : ''}${r.skipped ? `, ${r.skipped} already here` : ''}`);
+    } catch (e) { toast(String(e), true); }
+  }
+
+  // ---------- library folder ----------
+  async function openLibraryDialog(firstRun) {
+    const info = await invoke('library_info');
+    $('#libDlgTitle').textContent = firstRun ? 'Welcome! Where should we keep your songs?' : 'Move or switch your library folder';
+    $('#libDefaultPath').textContent = info.defaultDir;
+    $('#libraryDialog').showModal();
+  }
+  const ALL_DOCS = ['songs', 'media', 'groups', 'settings', 'schedule'];
+  async function useLibrary(dir) {
+    const wasUnconfigured = st.unconfigured;
+    // flush pending saves to the current folder first
+    if (!wasUnconfigured) await Promise.all(ALL_DOCS.map((name) => invoke('save_doc', { name, value: st[name] })));
+    try {
+      const r = await invoke('set_library', { dir });
+      // first run into an empty folder: write the starter library there
+      if (wasUnconfigured && !r.existing) await Promise.all(ALL_DOCS.map((name) => invoke('save_doc', { name, value: st[name] })));
+      st.unconfigured = false;
+      $('#libraryDialog').close();
+      toast(r.existing ? 'Opened the library in that folder' : 'Your library is now saved in that folder');
+      setTimeout(() => location.reload(), 600);
+    } catch (e) { toast(String(e), true); }
+  }
+  $('#libUseDefault').onclick = async () => useLibrary((await invoke('library_info')).defaultDir);
+  $('#libChoose').onclick = async () => {
+    const dir = await invoke('pick_folder', { title: 'Choose a folder for your Slides Forever library' });
+    if (dir) useLibrary(dir);
+  };
+  $('#libraryDialog').addEventListener('cancel', (e) => e.preventDefault());
+
+  function renderGreeting() {
+    const h = new Date().getHours();
+    $('#greeting').textContent = h < 12 ? 'Good morning 👋' : h < 18 ? 'Good afternoon 👋' : 'Good evening 👋';
+    $('#greetingSub').textContent = new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' }) + ' · Click to preview, double-click to go live';
+  }
 
   // ---------- first run ----------
   const SAMPLE_SONGS = [
@@ -1179,15 +1612,30 @@
   // ---------- init ----------
   async function init() {
     paintIcons();
-    const [songs, media, settings, schedule] = await Promise.all(
-      ['songs', 'media', 'settings', 'schedule'].map((name) => invoke('load_doc', { name }).catch(() => null)),
+    renderGreeting();
+    const info = await invoke('library_info');
+    st.unconfigured = !info.configured;
+    const [songs, media, groups, settings, schedule] = await Promise.all(
+      ['songs', 'media', 'groups', 'settings', 'schedule'].map((name) => invoke('load_doc', { name }).catch(() => null)),
     );
     st.songs = Array.isArray(songs) ? songs : [];
     st.media = Array.isArray(media) ? media : [];
+    st.groups = Array.isArray(groups) ? groups : [];
     st.schedule = Array.isArray(schedule) ? schedule : [];
     if (settings && typeof settings === 'object') {
-      st.settings = { ...structuredClone(DEFAULT_SETTINGS), ...settings, style: { ...S.DEFAULT_STYLE, ...(settings.style || {}) } };
+      const d = structuredClone(DEFAULT_SETTINGS);
+      st.settings = {
+        ...d, ...settings,
+        style: { ...S.DEFAULT_STYLE, ...(settings.style || {}) },
+        standby: { ...d.standby, ...(settings.standby || {}) },
+        ticker: { ...d.ticker, ...(settings.ticker || {}) },
+      };
     }
+    applyTheme();
+    $('#tickerText').value = st.settings.ticker.text || '';
+    if (st.unconfigured) openLibraryDialog(true);
+    const groupPages = st.groups.flatMap((g) => g.pages);
+    if (groupPages.length) invoke('register_media', { paths: groupPages });
     if (!st.settings.seeded) {
       if (!st.songs.length) st.songs = SAMPLE_SONGS.map((s) => ({ id: uid(), bg: null, ...s }));
       st.settings.seeded = true;
@@ -1199,6 +1647,7 @@
     }
     renderSongs();
     renderMedia();
+    renderGroups();
     renderSchedule();
     renderPreview();
     renderLive();

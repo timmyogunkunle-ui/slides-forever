@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Shine",
+  "productName": "Slides Forever",
   "version": "1.0.0",
-  "identifier": "com.shine.worship",
+  "identifier": "com.slidesforever.app",
   "build": {
     "frontendDist": "ui"
   },
@@ -11,7 +11,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Shine",
+        "title": "Slides Forever",
         "url": "index.html",
         "width": 1500,
         "height": 920,

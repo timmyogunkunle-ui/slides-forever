@@ -18,9 +18,9 @@
 .sl-media img, .sl-media video { object-fit: contain; background: #000; }
 .sl-bg .grad {
   background:
-    radial-gradient(120% 90% at 15% 10%, #2f7dff 0%, transparent 55%),
-    radial-gradient(90% 80% at 90% 100%, #0a2fa8 0%, transparent 60%),
-    linear-gradient(160deg, #0b3fd1 0%, #061a5c 100%);
+    radial-gradient(120% 90% at 15% 10%, #c9772f 0%, transparent 55%),
+    radial-gradient(90% 80% at 90% 100%, #2a160b 0%, transparent 60%),
+    linear-gradient(160deg, #7a4520 0%, #24140a 100%);
 }
 .sl-text {
   position: absolute;
@@ -76,3 +76,26 @@
 .sl-badge svg { width: 8cqh; height: 8cqh; }
 .sl-layer { position: absolute; inset: 0; transition: opacity var(--fade, .35s) ease; }
 .sl-layer.hide { opacity: 0; }
+
+/* transitions (output window sets data-tr on the stage) */
+.sl-layer { transition: opacity var(--fade, .35s) ease, transform var(--fade, .35s) cubic-bezier(.2, .7, .2, 1), clip-path var(--fade, .35s) ease, filter var(--fade, .35s) ease; }
+.sl-layer.leaving { opacity: 0; }
+[data-tr="slide"] .sl-layer.enter.hide { opacity: 1; transform: translateX(100%); }
+[data-tr="slide"] .sl-layer.leaving { opacity: 1; transform: translateX(-100%); }
+[data-tr="zoom"] .sl-layer.enter.hide { transform: scale(1.12); }
+[data-tr="zoom"] .sl-layer.leaving { transform: scale(.92); }
+[data-tr="wipe"] .sl-layer.enter.hide { opacity: 1; clip-path: inset(0 100% 0 0); }
+[data-tr="wipe"] .sl-layer.enter { clip-path: inset(0 0 0 0); }
+[data-tr="blur"] .sl-layer.enter.hide, [data-tr="blur"] .sl-layer.leaving { filter: blur(3cqh); }
+[data-tr="cut"] .sl-layer { transition: none !important; }
+
+/* default standby: your logo on warm cream */
+.sl-brand { position: absolute; inset: 0; background: radial-gradient(110% 90% at 50% 40%, #fffaf2 0%, #efe4d4 100%); display: flex; align-items: center; justify-content: center; }
+.sl-brand img { width: 62%; max-height: 40%; object-fit: contain; }
+
+/* scrolling message */
+.sl-ticker { position: absolute; left: 0; right: 0; height: 9cqh; display: flex; align-items: center; overflow: hidden; z-index: 5; box-shadow: 0 0 2cqh rgba(0,0,0,.35); }
+.sl-ticker.pos-bottom { bottom: 0; }
+.sl-ticker.pos-top { top: 0; }
+.sl-ticker span { white-space: nowrap; font: 700 5.2cqh/1 "Segoe UI", system-ui, sans-serif; padding-left: 2cqh; will-change: transform; animation: sl-tick var(--dur, 20s) linear infinite; }
+@keyframes sl-tick { from { transform: translateX(var(--from, 100vw)); } to { transform: translateX(var(--to, -100%)); } }

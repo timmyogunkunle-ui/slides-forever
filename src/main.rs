@@ -2,7 +2,9 @@
 
 mod bible;
 mod displays;
+mod easyworship;
 mod library;
+mod slides;
 
 use std::{
     fs,
@@ -11,40 +13,121 @@ use std::{
     time::Duration,
 };
 
-use serde_json::Value;
+use serde_json::{json, Value};
 use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, State, WebviewUrl, WebviewWindow,
     WebviewWindowBuilder, WindowEvent,
 };
 
-const DOCS: &[&str] = &["songs", "media", "settings", "schedule"];
+const DOCS: &[&str] = &["songs", "media", "groups", "settings", "schedule"];
+const PORTABLE_DIR: &str = "SlidesForeverData";
 
 struct AppState {
-    data_dir: PathBuf,
+    /// The user's library folder: songs.json, media.json, settings.json, schedule.json, slides/, bibles/
+    lib: RwLock<PathBuf>,
+    /// Small file in %APPDATA% remembering where the library is.
+    config_path: PathBuf,
+    portable: bool,
+    default_lib: PathBuf,
     live: Mutex<Value>,
     bibles: OnceLock<RwLock<Vec<bible::Bible>>>,
 }
 
 impl AppState {
+    fn lib(&self) -> PathBuf {
+        self.lib.read().unwrap().clone()
+    }
     fn bibles(&self) -> &RwLock<Vec<bible::Bible>> {
-        self.bibles.get_or_init(|| RwLock::new(bible::load_all(&self.data_dir)))
+        self.bibles.get_or_init(|| RwLock::new(bible::load_all(&self.lib())))
+    }
+    fn configured(&self) -> bool {
+        self.portable || self.config_path.is_file()
     }
 }
 
-/// `ShineData` next to the exe = portable mode (run from a USB stick); otherwise %APPDATA%.
-fn resolve_data_dir(app: &AppHandle) -> PathBuf {
-    if let Some(dir) = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("ShineData"))) {
-        if dir.is_dir() {
-            return dir;
-        }
-    }
-    app.path().app_data_dir().unwrap_or_else(|_| PathBuf::from("ShineData"))
+fn portable_dir() -> Option<PathBuf> {
+    let dir = std::env::current_exe().ok()?.parent()?.join(PORTABLE_DIR);
+    dir.is_dir().then_some(dir)
 }
 
 fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let tmp = path.with_extension("tmp");
     fs::write(&tmp, bytes)?;
     fs::rename(&tmp, path)
+}
+
+// ---------- library folder ----------
+
+#[tauri::command]
+fn library_info(state: State<AppState>) -> Value {
+    json!({
+        "dir": state.lib(),
+        "defaultDir": state.default_lib,
+        "portable": state.portable,
+        "configured": state.configured(),
+    })
+}
+
+#[tauri::command]
+async fn pick_folder(window: WebviewWindow, title: String) -> Result<Option<String>, String> {
+    Ok(rfd::FileDialog::new()
+        .set_title(&title)
+        .set_parent(&window)
+        .pick_folder()
+        .map(|p| p.to_string_lossy().into_owned()))
+}
+
+fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(to)?;
+    for e in fs::read_dir(from)? {
+        let e = e?;
+        let dest = to.join(e.file_name());
+        if e.file_type()?.is_dir() {
+            copy_dir(&e.path(), &dest)?;
+        } else if !dest.exists() {
+            fs::copy(e.path(), dest)?;
+        }
+    }
+    Ok(())
+}
+
+/// Use `dir` as the library. If it already holds a library we switch to it;
+/// otherwise the current library is copied there first.
+#[tauri::command]
+async fn set_library(app: AppHandle, state: State<'_, AppState>, dir: String) -> Result<Value, String> {
+    if state.portable {
+        return Err(format!("Running in portable mode — the library is the {PORTABLE_DIR} folder next to the app."));
+    }
+    let new = PathBuf::from(&dir);
+    fs::create_dir_all(&new).map_err(|e| format!("Can't use that folder: {e}"))?;
+    let old = state.lib();
+    let existing = new.join("songs.json").is_file();
+    if !existing && new != old && old.is_dir() {
+        for name in DOCS {
+            let f = old.join(format!("{name}.json"));
+            if f.is_file() {
+                fs::copy(&f, new.join(format!("{name}.json"))).map_err(|e| e.to_string())?;
+            }
+        }
+        for sub in ["slides", "bibles", "imports"] {
+            if old.join(sub).is_dir() {
+                copy_dir(&old.join(sub), &new.join(sub)).map_err(|e| e.to_string())?;
+            }
+        }
+    }
+    if let Some(p) = state.config_path.parent() {
+        fs::create_dir_all(p).map_err(|e| e.to_string())?;
+    }
+    fs::write(&state.config_path, serde_json::to_vec_pretty(&json!({ "libraryDir": new })).unwrap()).map_err(|e| e.to_string())?;
+    *state.lib.write().unwrap() = new.clone();
+    let _ = app.asset_protocol_scope().allow_directory(&new, true);
+    *state.bibles().write().unwrap() = bible::load_all(&new);
+    Ok(json!({ "dir": new, "existing": existing }))
+}
+
+#[tauri::command]
+fn open_folder(path: String) {
+    let _ = std::process::Command::new("explorer").arg(path).spawn();
 }
 
 // ---------- documents (songs, media, settings, schedule) ----------
@@ -54,7 +137,7 @@ fn load_doc(state: State<AppState>, name: String) -> Value {
     if !DOCS.contains(&name.as_str()) {
         return Value::Null;
     }
-    fs::read(state.data_dir.join(format!("{name}.json")))
+    fs::read(state.lib().join(format!("{name}.json")))
         .ok()
         .and_then(|b| serde_json::from_slice(&b).ok())
         .unwrap_or(Value::Null)
@@ -65,14 +148,140 @@ fn save_doc(state: State<AppState>, name: String, value: Value) -> Result<(), St
     if !DOCS.contains(&name.as_str()) {
         return Err("unknown document".into());
     }
-    fs::create_dir_all(&state.data_dir).map_err(|e| e.to_string())?;
+    let lib = state.lib();
+    fs::create_dir_all(&lib).map_err(|e| e.to_string())?;
     let bytes = serde_json::to_vec_pretty(&value).map_err(|e| e.to_string())?;
-    write_atomic(&state.data_dir.join(format!("{name}.json")), &bytes).map_err(|e| e.to_string())
+    write_atomic(&lib.join(format!("{name}.json")), &bytes).map_err(|e| e.to_string())
+}
+
+// ---------- EasyWorship ----------
+
+#[tauri::command]
+async fn ew_find() -> Result<Vec<easyworship::EwLibrary>, String> {
+    Ok(easyworship::find())
+}
+
+/// Read songs from an EasyWorship library folder; with no path, ask the user for a Songs.db.
+#[tauri::command]
+async fn ew_import(window: WebviewWindow, path: Option<String>) -> Result<Vec<library::ImportedSong>, String> {
+    let path = match path {
+        Some(p) => PathBuf::from(p),
+        None => match rfd::FileDialog::new()
+            .set_title("Find EasyWorship's Songs.db (in ...\\Databases\\Data)")
+            .add_filter("EasyWorship songs", &["db"])
+            .set_directory(r"C:\Users\Public\Documents\Softouch\Easyworship")
+            .set_parent(&window)
+            .pick_file()
+        {
+            Some(p) => p,
+            None => return Ok(vec![]),
+        },
+    };
+    easyworship::read_library(&path)
+}
+
+// ---------- slide groups ----------
+
+#[tauri::command]
+async fn pick_slide_files(window: WebviewWindow) -> Result<Vec<String>, String> {
+    let mut all: Vec<&str> = slides::PDF_EXT.iter().chain(slides::PPT_EXT).copied().collect();
+    all.extend(library::IMAGE_EXT);
+    all.extend(library::GIF_EXT);
+    Ok(rfd::FileDialog::new()
+        .set_title("Make a slide group from PDF, PowerPoint or images")
+        .add_filter("PDF, PowerPoint & images", &all)
+        .set_parent(&window)
+        .pick_files()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect())
 }
 
 #[tauri::command]
-fn data_folder(state: State<AppState>) -> String {
-    state.data_dir.to_string_lossy().into_owned()
+async fn make_slide_group(app: AppHandle, state: State<'_, AppState>, id: String, paths: Vec<String>) -> Result<Vec<String>, String> {
+    if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return Err("bad id".into());
+    }
+    let out = state.lib().join("slides").join(&id);
+    let sources: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
+    let out2 = out.clone();
+    let pages = tauri::async_runtime::spawn_blocking(move || slides::build_group(&sources, &out2))
+        .await
+        .map_err(|e| e.to_string())?;
+    let pages = match pages {
+        Ok(p) => p,
+        Err(e) => {
+            let _ = fs::remove_dir_all(&out);
+            return Err(e);
+        }
+    };
+    let _ = app.asset_protocol_scope().allow_directory(&out, false);
+    Ok(pages.into_iter().map(|p| p.to_string_lossy().into_owned()).collect())
+}
+
+#[tauri::command]
+fn delete_slide_group(state: State<AppState>, id: String) {
+    if !id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric()) {
+        let _ = fs::remove_dir_all(state.lib().join("slides").join(id));
+    }
+}
+
+/// Files dragged in from Explorer arrive as bytes; keep a copy in <library>/imports.
+#[tauri::command]
+fn save_dropped(app: AppHandle, state: State<AppState>, request: tauri::ipc::Request) -> Result<String, String> {
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err("expected file bytes".into());
+    };
+    let raw_name = request
+        .headers()
+        .get("x-name")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| percent_decode(s))
+        .unwrap_or_else(|| "file".into());
+    let name: String = Path::new(&raw_name)
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "file".into())
+        .chars()
+        .map(|c| if r#"<>:"/\|?*"#.contains(c) { '_' } else { c })
+        .collect();
+    let dir = state.lib().join("imports");
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let mut dest = dir.join(&name);
+    let mut n = 1;
+    while dest.exists() {
+        let stem = Path::new(&name).file_stem().unwrap_or_default().to_string_lossy().to_string();
+        let ext = Path::new(&name).extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
+        dest = dir.join(format!("{stem} ({n}){ext}"));
+        n += 1;
+    }
+    fs::write(&dest, bytes).map_err(|e| e.to_string())?;
+    let _ = app.asset_protocol_scope().allow_file(&dest);
+    Ok(dest.to_string_lossy().into_owned())
+}
+
+fn percent_decode(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' && i + 2 < b.len() {
+            if let Some(Ok(v)) = s.get(i + 1..i + 3).map(|h| u8::from_str_radix(h, 16)) {
+                out.push(v);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(b[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+#[tauri::command]
+fn parse_song(name: String, text: String) -> library::ImportedSong {
+    library::parse_song(&name, &text)
 }
 
 // ---------- imports ----------
@@ -180,7 +389,7 @@ async fn import_bible(state: State<'_, AppState>, window: WebviewWindow) -> Resu
     else {
         return Ok(None);
     };
-    let imported = bible::import_file(&state.data_dir, &file)?;
+    let imported = bible::import_file(&state.lib(), &file)?;
     let name = imported.name.clone();
     let mut list = state.bibles().write().unwrap();
     list.retain(|b| b.id != imported.id);
@@ -207,7 +416,7 @@ async fn open_output(app: AppHandle, id: String) -> Result<String, String> {
     let win = match app.get_webview_window("output") {
         Some(w) => w,
         None => WebviewWindowBuilder::new(&app, "output", WebviewUrl::App("output.html".into()))
-            .title("Shine — Live Output")
+            .title("Slides Forever — Live Output")
             .decorations(false)
             .resizable(false)
             .visible(false)
@@ -300,10 +509,34 @@ fn media_status(app: AppHandle, status: Value) {
 fn main() {
     tauri::Builder::default()
         .setup(|app| {
-            let data_dir = resolve_data_dir(app.handle());
-            let _ = fs::create_dir_all(&data_dir);
-            let _ = app.asset_protocol_scope().allow_directory(&data_dir, true);
-            app.manage(AppState { data_dir, live: Mutex::new(Value::Null), bibles: OnceLock::new() });
+            let config_path = app.path().app_config_dir().unwrap_or_else(|_| PathBuf::from(".")).join("config.json");
+            let default_lib = app
+                .path()
+                .document_dir()
+                .or_else(|_| app.path().home_dir())
+                .unwrap_or_else(|_| PathBuf::from("."))
+                .join("Slides Forever");
+            let portable = portable_dir();
+            let lib = portable.clone().unwrap_or_else(|| {
+                fs::read(&config_path)
+                    .ok()
+                    .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+                    .and_then(|v| v.get("libraryDir").and_then(|d| d.as_str()).map(PathBuf::from))
+                    .unwrap_or_else(|| default_lib.clone())
+            });
+            // Nothing is written until the user has chosen a library folder (or is in portable mode).
+            if portable.is_some() || config_path.is_file() {
+                let _ = fs::create_dir_all(&lib);
+            }
+            let _ = app.asset_protocol_scope().allow_directory(&lib, true);
+            app.manage(AppState {
+                lib: RwLock::new(lib),
+                config_path,
+                portable: portable.is_some(),
+                default_lib,
+                live: Mutex::new(Value::Null),
+                bibles: OnceLock::new(),
+            });
             // Warm up the Bibles in the background so the first search is instant.
             let h = app.handle().clone();
             std::thread::spawn(move || {
@@ -321,9 +554,19 @@ fn main() {
             _ => {}
         })
         .invoke_handler(tauri::generate_handler![
+            library_info,
+            pick_folder,
+            set_library,
+            open_folder,
             load_doc,
             save_doc,
-            data_folder,
+            ew_find,
+            ew_import,
+            pick_slide_files,
+            make_slide_group,
+            delete_slide_group,
+            save_dropped,
+            parse_song,
             import_songs,
             pick_media,
             register_media,
@@ -343,5 +586,5 @@ fn main() {
             media_status,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running Shine");
+        .expect("error while running Slides Forever");
 }

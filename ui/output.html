@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Shine — Live Output</title>
+  <title>Slides Forever — Live Output</title>
   <link rel="stylesheet" href="slide.css" />
   <style>
     html, body { margin: 0; height: 100%; background: #000; overflow: hidden; cursor: none; }
@@ -11,6 +11,7 @@
     #textWrap { position: absolute; inset: 0; transition: opacity var(--fade, .35s) ease; }
     #textWrap.cleared { opacity: 0; }
     #bgWrap, #mediaWrap { position: absolute; inset: 0; }
+    #tickerHost { position: fixed; inset: 0; background: transparent; pointer-events: none; z-index: 10; }
     #bgWrap .sl-layer > * { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
     #mediaWrap .sl-layer > * { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
   </style>
@@ -21,6 +22,7 @@
     <div id="mediaWrap"></div>
     <div id="textWrap"></div>
   </div>
+  <div id="tickerHost" class="sl"></div>
   <script src="render.js"></script>
   <script src="output.js"></script>
 </body>

@@ -1,4 +1,4 @@
-name: Build Shine.exe
+name: Build SlidesForever.exe
 
 on:
   push:
@@ -28,15 +28,15 @@ jobs:
         run: cargo build --release
 
       - name: Rename
-        run: Copy-Item target/release/shine.exe Shine.exe
+        run: Copy-Item target/release/slides-forever.exe SlidesForever.exe
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Shine-windows
-          path: Shine.exe
+          name: SlidesForever-windows
+          path: SlidesForever.exe
 
       - name: Publish release (tags only)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: Shine.exe
+          files: SlidesForever.exe
