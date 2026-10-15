@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Shine</title>
+  <link rel="stylesheet" href="slide.css" />
+  <link rel="stylesheet" href="app.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><img src="icon.png" alt="" /><span>Shine</span></div>
+    <div class="top-hint" id="topHint">Click to preview · Double-click to go live · <kbd>→</kbd> next slide</div>
+    <div class="top-actions">
+      <button class="display-pill" id="btnDisplays" title="Choose the screen the live output goes to">
+        <span class="ic-wrap" data-icon="monitor"></span>
+        <span class="dp-text"><small>Live screen</small><b id="displayLabel">Choose display</b></span>
+        <span data-icon="down"></span>
+      </button>
+      <button class="output-toggle" id="btnOutput" title="Turn the live output window on/off">
+        <span class="dot"></span><span id="outputLabel">Output off</span>
+      </button>
+      <button class="icon-btn light" id="btnSettings" title="Settings"><span data-icon="sliders"></span></button>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <!-- Service order -->
+    <section class="panel schedule-panel">
+      <div class="panel-head">
+        <span class="badge" data-icon="list"></span>
+        <h2>Service</h2>
+        <div class="grow"></div>
+        <button class="icon-btn" id="btnClearSchedule" title="Clear service"><span data-icon="trash"></span></button>
+      </div>
+      <ol class="schedule" id="schedule"></ol>
+      <div class="schedule-empty" id="scheduleEmpty">
+        <span data-icon="layers"></span>
+        <p><b>Build your service</b><br />Drag songs, verses and media here, or use <b>+ Service</b>.</p>
+      </div>
+    </section>
+
+    <!-- Preview -->
+    <section class="panel preview-panel">
+      <div class="panel-head">
+        <span class="badge" data-icon="eye"></span>
+        <h2>Preview</h2>
+        <span class="item-title" id="previewTitle">Nothing selected</span>
+        <div class="grow"></div>
+        <button class="icon-btn" id="btnEditPreview" title="Edit this song" hidden><span data-icon="edit"></span></button>
+      </div>
+      <div class="stage-row">
+        <div class="stage" id="previewStage"></div>
+        <button class="go-live" id="btnGoLive" title="Send to live (Enter)">
+          <span data-icon="arrow"></span><b>GO LIVE</b><small>Enter</small>
+        </button>
+      </div>
+      <div class="slides" id="previewSlides"></div>
+    </section>
+
+    <!-- Live -->
+    <section class="panel live-panel" id="livePanel">
+      <div class="panel-head">
+        <span class="live-chip"><i></i>LIVE</span>
+        <span class="item-title" id="liveTitle">Nothing live</span>
+        <div class="grow"></div>
+      </div>
+      <div class="stage-row">
+        <div class="stage live" id="liveStage"></div>
+        <div class="live-tools">
+          <button class="tool" id="btnBlack" title="Black screen (B)"><span data-icon="black"></span><b>Black</b></button>
+          <button class="tool" id="btnClearText" title="Hide text, keep background (C)"><span data-icon="textoff"></span><b>Clear</b></button>
+          <button class="tool" id="btnLogo" title="Show logo (L)"><span data-icon="star"></span><b>Logo</b></button>
+        </div>
+      </div>
+      <div class="video-bar" id="videoBar" hidden>
+        <button class="icon-btn" id="btnVidPlay" title="Play / pause"><span data-icon="pause"></span></button>
+        <button class="icon-btn" id="btnVidRestart" title="Restart"><span data-icon="restart"></span></button>
+        <input type="range" id="vidSeek" min="0" max="1000" value="0" />
+        <span id="vidTime">0:00</span>
+      </div>
+      <div class="slides" id="liveSlides"></div>
+    </section>
+  </main>
+
+  <!-- Library -->
+  <section class="library">
+    <nav class="lib-tabs">
+      <button class="lib-tab active" data-tab="songs"><span data-icon="music"></span>Songs</button>
+      <button class="lib-tab" data-tab="bible"><span data-icon="book"></span>Bible</button>
+      <button class="lib-tab" data-tab="media"><span data-icon="image"></span>Media</button>
+    </nav>
+
+    <!-- Songs -->
+    <div class="lib-page active" data-page="songs">
+      <div class="lib-toolbar">
+        <label class="search"><span data-icon="search"></span><input id="songSearch" placeholder="Search songs by title or lyrics…" /></label>
+        <button class="btn primary" id="btnNewSong"><span data-icon="plus"></span>New song</button>
+        <button class="btn" id="btnImportSongs"><span data-icon="upload"></span>Import .txt</button>
+        <div class="grow"></div>
+        <span class="count" id="songCount"></span>
+      </div>
+      <div class="song-list" id="songList"></div>
+    </div>
+
+    <!-- Bible -->
+    <div class="lib-page" data-page="bible">
+      <div class="lib-toolbar">
+        <select id="bibleSelect" class="select"></select>
+        <label class="search big"><span data-icon="search"></span><input id="bibleSearch" placeholder="Type a reference (John 3:16, Ps 23, 1 Cor 13:4-7) or words (love never fails)…" /></label>
+        <button class="btn" id="btnBibleAdd"><span data-icon="plus"></span>Service</button>
+      </div>
+      <div class="bible-body">
+        <div class="bible-nav">
+          <div class="books" id="bookList"></div>
+          <div class="chapters" id="chapterList"></div>
+        </div>
+        <div class="verses-wrap">
+          <div class="verses-head"><b id="versesTitle">Choose a book</b><span class="muted" id="versesHint">Click a verse to preview · Shift-click for a range · Double-click to go live</span></div>
+          <div class="verses" id="verseList"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Media -->
+    <div class="lib-page" data-page="media">
+      <div class="lib-toolbar">
+        <label class="search"><span data-icon="search"></span><input id="mediaSearch" placeholder="Search media…" /></label>
+        <div class="chips" id="mediaFilter">
+          <button class="chip active" data-kind="all">All</button>
+          <button class="chip" data-kind="image"><span data-icon="image"></span>Images</button>
+          <button class="chip" data-kind="video"><span data-icon="film"></span>Videos</button>
+          <button class="chip" data-kind="gif"><span data-icon="gif"></span>GIFs</button>
+        </div>
+        <div class="grow"></div>
+        <button class="btn primary" id="btnAddMedia"><span data-icon="plus"></span>Add media</button>
+      </div>
+      <div class="media-grid" id="mediaGrid"></div>
+    </div>
+  </section>
+
+  <!-- Song editor -->
+  <dialog class="modal wide" id="songEditor">
+    <form method="dialog" class="modal-inner">
+      <div class="modal-head">
+        <span class="badge" data-icon="music"></span>
+        <h2 id="songEditorTitle">New song</h2>
+        <div class="grow"></div>
+        <button class="icon-btn" value="cancel" title="Close"><span data-icon="x"></span></button>
+      </div>
+      <div class="editor">
+        <div class="editor-form">
+          <label class="field"><span>Title</span><input id="edTitle" required placeholder="Song title" /></label>
+          <div class="field-row">
+            <label class="field"><span>Author</span><input id="edAuthor" placeholder="Optional" /></label>
+            <label class="field"><span>Copyright / CCLI</span><input id="edCopyright" placeholder="Optional" /></label>
+          </div>
+          <label class="field grow-field"><span>Lyrics <em>Leave a blank line between slides. Put “Verse 1”, “Chorus”, “Bridge” on its own line to label a slide.</em></span>
+            <textarea id="edLyrics" spellcheck="true" placeholder="Verse 1&#10;Amazing grace how sweet the sound&#10;That saved a wretch like me&#10;&#10;Chorus&#10;My chains are gone&#10;I've been set free"></textarea>
+          </label>
+          <div class="field">
+            <span>Background</span>
+            <div class="bg-picker" id="edBgPicker"></div>
+          </div>
+        </div>
+        <div class="editor-preview">
+          <div class="muted small" id="edSlideCount">0 slides</div>
+          <div class="slides compact" id="edSlides"></div>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" value="cancel">Cancel</button>
+        <div class="grow"></div>
+        <button class="btn" id="edSaveService" value="save-service"><span data-icon="plus"></span>Save &amp; add to service</button>
+        <button class="btn primary" id="edSave" value="save"><span data-icon="check"></span>Save song</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Display picker -->
+  <dialog class="modal" id="displayDialog">
+    <div class="modal-inner">
+      <div class="modal-head">
+        <span class="badge" data-icon="monitor"></span>
+        <h2>Choose your live screen</h2>
+        <div class="grow"></div>
+        <button class="icon-btn" data-close title="Close"><span data-icon="x"></span></button>
+      </div>
+      <p class="muted">These are the screens connected to this computer. Pick the one your projector or TV is on.</p>
+      <div class="display-map" id="displayMap"></div>
+      <div class="display-detail" id="displayDetail"></div>
+      <div class="modal-foot">
+        <button class="btn" id="btnIdentify"><span data-icon="eye"></span>Identify screens</button>
+        <button class="btn" id="btnRefreshDisplays"><span data-icon="refresh"></span>Refresh</button>
+        <div class="grow"></div>
+        <button class="btn danger-ghost" id="btnOutputOff"><span data-icon="power"></span>Turn output off</button>
+        <button class="btn primary" id="btnUseDisplay"><span data-icon="check"></span>Send live output here</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Settings -->
+  <dialog class="modal" id="settingsDialog">
+    <div class="modal-inner">
+      <div class="modal-head">
+        <span class="badge" data-icon="sliders"></span>
+        <h2>Settings</h2>
+        <div class="grow"></div>
+        <button class="icon-btn" data-close title="Close"><span data-icon="x"></span></button>
+      </div>
+      <div class="settings">
+        <div class="settings-col">
+          <h3>Text style</h3>
+          <div class="field-row">
+            <label class="field"><span>Font</span>
+              <select id="stFont" class="select">
+                <option>Segoe UI</option><option>Segoe UI Black</option><option>Arial</option><option>Arial Black</option>
+                <option>Calibri</option><option>Verdana</option><option>Tahoma</option><option>Trebuchet MS</option>
+                <option>Georgia</option><option>Cambria</option><option>Times New Roman</option><option>Impact</option>
+              </select>
+            </label>
+            <label class="field"><span>Weight</span>
+              <select id="stWeight" class="select"><option value="400">Regular</option><option value="600">Semibold</option><option value="800">Bold</option><option value="900">Black</option></select>
+            </label>
+          </div>
+          <label class="field"><span>Text size <b id="stSizeVal"></b></span><input type="range" id="stSize" min="4" max="16" step="0.5" /></label>
+          <div class="field-row">
+            <label class="field"><span>Text colour</span><input type="color" id="stColor" /></label>
+            <label class="field"><span>Position</span>
+              <select id="stPosition" class="select"><option value="middle">Middle</option><option value="top">Top</option><option value="bottom">Bottom (lower third)</option></select>
+            </label>
+          </div>
+          <div class="checks">
+            <label><input type="checkbox" id="stShadow" /> Text shadow</label>
+            <label><input type="checkbox" id="stUpper" /> ALL CAPS</label>
+          </div>
+          <label class="field"><span>Fade speed <b id="stFadeVal"></b></span><input type="range" id="stFade" min="0" max="1.5" step="0.05" /></label>
+          <div class="stage small-stage" id="stylePreview"></div>
+        </div>
+        <div class="settings-col">
+          <h3>Backgrounds</h3>
+          <div class="field"><span>Default song background</span><div class="bg-picker" id="setSongBg"></div></div>
+          <div class="field"><span>Default scripture background</span><div class="bg-picker" id="setScriptureBg"></div></div>
+          <div class="field"><span>Logo (shown with the Logo button)</span><div class="bg-picker" id="setLogo"></div></div>
+          <h3>Bible</h3>
+          <label class="field"><span>Verses per slide</span>
+            <select id="setVersesPerSlide" class="select"><option value="1">1 verse</option><option value="2">2 verses</option><option value="3">3 verses</option><option value="4">4 verses</option></select>
+          </label>
+          <button class="btn" id="btnImportBible"><span data-icon="upload"></span>Import another Bible…</button>
+          <p class="muted small">Accepts JSON Bible files or text files with one verse per line (e.g. <code>John 3:16 For God so loved…</code>).</p>
+          <h3>Your data</h3>
+          <p class="muted small">Songs, media list and settings are saved in:<br /><code id="dataFolder"></code><br />Tip: create a folder named <code>ShineData</code> next to Shine.exe to run it portable from a USB stick.</p>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <span class="muted small"><span data-icon="keyboard"></span> Enter = go live · ← → = slides · B = black · C = clear · L = logo · Esc = clear all</span>
+        <div class="grow"></div>
+        <button class="btn primary" data-close><span data-icon="check"></span>Done</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Media / background chooser -->
+  <dialog class="modal" id="mediaChooser">
+    <div class="modal-inner">
+      <div class="modal-head">
+        <span class="badge" data-icon="layers"></span>
+        <h2 id="chooserTitle">Choose background</h2>
+        <div class="grow"></div>
+        <button class="icon-btn" data-close title="Close"><span data-icon="x"></span></button>
+      </div>
+      <div class="media-grid chooser" id="chooserGrid"></div>
+      <div class="modal-foot">
+        <button class="btn" id="chooserAdd"><span data-icon="plus"></span>Add media from computer</button>
+        <div class="grow"></div>
+        <button class="btn" id="chooserNone">Use default</button>
+      </div>
+    </div>
+  </dialog>
+
+  <div class="ctx-menu" id="ctxMenu" hidden></div>
+  <div class="toasts" id="toasts"></div>
+
+  <script src="render.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

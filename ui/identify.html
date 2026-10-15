@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Identify</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; font-family: "Segoe UI", system-ui, sans-serif; }
+    .box {
+      position: absolute; inset: 6px;
+      border-radius: 28px;
+      background: linear-gradient(160deg, #2a6bff, #0a1f66);
+      border: 4px solid #fff;
+      color: #fff;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      box-shadow: 0 10px 30px rgba(0,0,0,.4);
+      animation: pop .25s ease-out;
+    }
+    .n { font-size: 120px; font-weight: 900; line-height: 1; }
+    .nm { font-size: 18px; font-weight: 800; margin-top: 8px; max-width: 90%; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .r { font-size: 14px; font-weight: 600; opacity: .8; }
+    @keyframes pop { from { transform: scale(.8); opacity: 0; } }
+  </style>
+</head>
+<body>
+  <div class="box"><div class="n" id="n"></div><div class="nm" id="nm"></div><div class="r" id="r"></div></div>
+  <script>
+    const d = window.__IDENT || { number: '?', name: '' };
+    document.getElementById('n').textContent = d.number;
+    document.getElementById('nm').textContent = d.name;
+    document.getElementById('r').textContent = d.w ? `${d.w} × ${d.h}` : '';
+  </script>
+</body>
+</html>

@@ -1,0 +1,78 @@
+/* Shared slide look: used by thumbnails, preview, live monitor and the output window.
+   Sizes are in cqh (percent of slide height) so every copy scales identically. */
+.sl {
+  position: relative;
+  overflow: hidden;
+  background: #000;
+  container-type: size;
+  color: #fff;
+  isolation: isolate;
+}
+.sl-bg, .sl-bg > *, .sl-media, .sl-media > * {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.sl-bg img, .sl-bg video { object-fit: cover; }
+.sl-media img, .sl-media video { object-fit: contain; background: #000; }
+.sl-bg .grad {
+  background:
+    radial-gradient(120% 90% at 15% 10%, #2f7dff 0%, transparent 55%),
+    radial-gradient(90% 80% at 90% 100%, #0a2fa8 0%, transparent 60%),
+    linear-gradient(160deg, #0b3fd1 0%, #061a5c 100%);
+}
+.sl-text {
+  position: absolute;
+  inset: 7cqh 6cqw 7cqh 6cqw;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  gap: 3cqh;
+}
+.sl-text.pos-top { justify-content: flex-start; }
+.sl-text.pos-bottom { justify-content: flex-end; }
+.sl-text.al-left { align-items: flex-start; text-align: left; }
+.sl-body {
+  width: 100%;
+  max-height: 100%;
+  overflow: hidden;
+  white-space: pre-line;
+  line-height: 1.22;
+  overflow-wrap: break-word;
+}
+.sl-body.shadow, .sl-cap.shadow {
+  text-shadow: 0 0.35cqh 1.2cqh rgba(0, 0, 0, .85), 0 0 0.3cqh rgba(0, 0, 0, .9);
+}
+.sl-body sup { font-size: .55em; opacity: .8; margin-right: .2em; vertical-align: .55em; line-height: 0; }
+.sl-cap {
+  font-size: 4.2cqh;
+  font-weight: 700;
+  opacity: .92;
+  letter-spacing: .02em;
+  flex: none;
+}
+.sl-cap:empty { display: none; }
+.sl-label {
+  position: absolute;
+  top: 3cqh; left: 3cqw;
+  padding: .6cqh 1.6cqh;
+  border-radius: 99px;
+  background: rgba(10, 30, 90, .75);
+  font: 800 6cqh/1.3 "Segoe UI", system-ui, sans-serif;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.sl-badge {
+  position: absolute;
+  bottom: 3cqh; right: 3cqw;
+  width: 14cqh; height: 14cqh;
+  border-radius: 50%;
+  display: grid; place-items: center;
+  background: rgba(10, 30, 90, .75);
+}
+.sl-badge svg { width: 8cqh; height: 8cqh; }
+.sl-layer { position: absolute; inset: 0; transition: opacity var(--fade, .35s) ease; }
+.sl-layer.hide { opacity: 0; }
