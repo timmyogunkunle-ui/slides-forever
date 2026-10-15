@@ -376,3 +376,20 @@ mark { background: #ffe18a; color: #2a1d13; border-radius: 3px; padding: 0 1px; 
 
 ::-webkit-scrollbar { width: 11px; height: 11px; }
 ::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 99px; border: 3px solid transparent; background-clip: padding-box; }
+
+/* saved services */
+.svc-title { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }
+.svc-title small { color: var(--muted); font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px; }
+.svc-title small.dirty::after { content: " •"; color: var(--accent); font-weight: 900; }
+.svc-row { display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 14px; border: 1.5px solid var(--line); margin-bottom: 8px; background: var(--panel); }
+.svc-row:hover { border-color: var(--select-line); background: var(--panel-2); }
+.svc-row.current { border-color: var(--accent); background: var(--select); }
+.svc-row .txt { flex: 1; min-width: 0; }
+.svc-row .txt b { display: block; color: var(--heading); font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.svc-row .txt small { color: var(--muted); }
+.svc-row .btn { height: 36px; padding: 0 12px; }
+.schedule-panel .panel-head { gap: 6px; }
+.schedule-panel .panel-head .grow { display: none; }
+.schedule-panel .svc-title { flex: 1; }
+.schedule-panel .svc-title small { max-width: none; }
+.schedule-panel .panel-head .icon-btn { width: 32px; height: 32px; flex: none; }

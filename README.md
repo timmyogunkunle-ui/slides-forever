@@ -16,7 +16,9 @@ Fast, friendly worship presentation software: a modern alternative to EasyWorshi
 | **Transitions** | Fade, Slide, Zoom, Wipe, Blur or Cut, with adjustable speed (quick picker on the Live panel). |
 | **Standby screen** | Your logo by default. Set any picture/video/GIF, a message, or right-click any slide → *Use this slide as the standby screen*. Optionally shown automatically whenever nothing is live. |
 | **Scrolling message** | Type a message on the Live panel and press **Scroll** (or `T`) to run a ticker along the bottom or top of the screen, over whatever is live. |
-| **Screens** | The **Live screen** button shows every connected display laid out like Windows display settings, with real monitor names (e.g. *EPSON Projector · HDMI · 1920×1080*), plus **Identify screens**. |
+| **Screens** | The **Live screen** button shows every connected display laid out like Windows display settings, with real monitor names (e.g. *EPSON Projector · HDMI · 1920×1080*), plus **Identify screens**. **Tick as many screens as you like** (e.g. a projector *and* a TV) and live shows on all of them; video sound plays from the first one only. |
+| **Saved services** | Press **Save** (or Ctrl+S) on the Service panel to keep the running order under a name like *Sunday 18 October*. **Open** lists every saved service to reopen, delete, or start a new one. A dot next to the name means there are unsaved changes. |
+| **Splash screen** | Opens instantly with your logo, a random Bible verse and a shepherd leading his flock across the hills while your library loads. |
 | **Colours** | Warm Sand (default), Royal Blue, Forest, Plum or Midnight (dark), under Settings → App colours. |
 
 ### Keyboard
@@ -32,6 +34,7 @@ Fast, friendly worship presentation software: a modern alternative to EasyWorshi
 | T | Scrolling message on/off |
 | Esc | Clear everything (on the output window: close it) |
 | Ctrl+N | New song |
+| Ctrl+S | Save the service |
 
 ## Where your songs are saved
 
@@ -42,6 +45,7 @@ On first launch Slides Forever asks where to keep your **library**. The default 
   songs.json       all your songs
   media.json       your list of pictures/videos (files stay where they are)
   groups.json      slide groups
+  services.json    saved services
   slides\<id>\     the pages of each slide group (PNG)
   imports\         files you dragged into the app
   bibles\          extra Bibles you imported

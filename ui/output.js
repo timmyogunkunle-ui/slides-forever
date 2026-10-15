@@ -11,6 +11,8 @@
   const tickerHost = document.getElementById('tickerHost');
   let fade = 0.35;
   let mediaVideo = null;
+  // With several live screens, only the first plays video sound and reports progress.
+  let primary = window.__OUT ? !!window.__OUT.primary : true;
 
   function swap(wrap, key, make) {
     if (wrap._key === key) return null;
@@ -61,8 +63,8 @@
     if (mediaWrap._key !== mKey) {
       mediaVideo = null;
       swap(mediaWrap, mKey, isMedia ? () => {
-        const el = S.mediaElement(slide.media, { muted: false, play: true });
-        if (el.tagName === 'VIDEO') { mediaVideo = el; el.muted = false; }
+        const el = S.mediaElement(slide.media, { muted: !primary, play: true });
+        if (el.tagName === 'VIDEO') { mediaVideo = el; el.muted = !primary; } // only one screen plays sound
         return el;
       } : null);
     }
@@ -76,6 +78,10 @@
   }
 
   listen('live', ({ payload }) => apply(payload));
+  listen('role', ({ payload }) => {
+    primary = !!payload.primary;
+    if (mediaVideo) mediaVideo.muted = !primary;
+  });
   listen('control', ({ payload }) => {
     const v = mediaVideo;
     if (!v) return;
@@ -86,7 +92,7 @@
 
   setInterval(() => {
     const v = mediaVideo;
-    if (v && v.isConnected) invoke('media_status', { status: { time: v.currentTime, duration: v.duration || 0, paused: v.paused } });
+    if (primary && v && v.isConnected) invoke('media_status', { status: { time: v.currentTime, duration: v.duration || 0, paused: v.paused } });
   }, 300);
 
   window.addEventListener('resize', () => {
@@ -94,7 +100,7 @@
     tickerHost._tk = null;
     invoke('get_live').then(apply);
   });
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') invoke('close_output'); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') invoke('close_this_output'); });
   document.addEventListener('contextmenu', (e) => e.preventDefault());
 
   invoke('get_live').then(apply);

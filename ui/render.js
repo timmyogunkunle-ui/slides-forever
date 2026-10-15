@@ -209,6 +209,7 @@
     keyboard: '<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M6 13h.01M18 13h.01M8 16h8"/>',
     gif: '<rect x="2" y="5" width="20" height="14" rx="3"/><path d="M8.5 10.5H7a1.5 1.5 0 0 0 0 3h1.5v-1.5M12 10v4M16 14v-4h2M16 12h1.5"/>',
     text: '<path d="M4 7V4h16v3M9 20h6M12 4v16"/>',
+    save: '<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/>',
     download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>',
     ticker: '<rect x="2" y="7" width="20" height="10" rx="2"/><path d="M6 12h8M17 10l2 2-2 2"/>',
     slides: '<rect x="3" y="6" width="14" height="10" rx="2"/><path d="M7 3h12a2 2 0 0 1 2 2v9"/><path d="M8 19h8"/>',

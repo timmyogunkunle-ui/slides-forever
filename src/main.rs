@@ -19,7 +19,7 @@ use tauri::{
     WebviewWindowBuilder, WindowEvent,
 };
 
-const DOCS: &[&str] = &["songs", "media", "groups", "settings", "schedule"];
+const DOCS: &[&str] = &["songs", "media", "groups", "settings", "schedule", "services"];
 const PORTABLE_DIR: &str = "SlidesForeverData";
 
 struct AppState {
@@ -31,6 +31,9 @@ struct AppState {
     default_lib: PathBuf,
     live: Mutex<Value>,
     bibles: OnceLock<RwLock<Vec<bible::Bible>>>,
+    /// (window label, display id) for each open live output
+    outputs: Mutex<Vec<(String, String)>>,
+    started: std::time::Instant,
 }
 
 impl AppState {
@@ -404,47 +407,88 @@ fn list_displays(app: AppHandle) -> Result<Vec<displays::DisplayInfo>, String> {
     displays::list(&app)
 }
 
+/// Window label for the live output on a display, e.g. `\\.\DISPLAY2` -> `output-DISPLAY2`.
+fn output_label(display_id: &str) -> String {
+    let clean: String = display_id.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
+    format!("output-{clean}")
+}
+
+fn output_windows(app: &AppHandle) -> Vec<WebviewWindow> {
+    app.webview_windows().into_iter().filter(|(l, _)| l.starts_with("output-")).map(|(_, w)| w).collect()
+}
+
+fn emit_outputs(app: &AppHandle, event: &str, payload: Value) {
+    for w in output_windows(app) {
+        let _ = app.emit_to(w.label(), event, payload.clone());
+    }
+}
+
+/// Show the live output on every display in `ids` (first one plays video sound) and close the rest.
 #[tauri::command]
-async fn open_output(app: AppHandle, id: String) -> Result<String, String> {
+async fn open_outputs(app: AppHandle, state: State<'_, AppState>, ids: Vec<String>) -> Result<Vec<String>, String> {
     let mons = displays::monitors(&app)?;
-    let m = mons
+    let targets: Vec<(String, tauri::Monitor)> = ids
         .iter()
-        .find(|m| m.name() == Some(&id))
-        .or_else(|| mons.first())
-        .ok_or("No displays found")?
-        .clone();
-    let win = match app.get_webview_window("output") {
-        Some(w) => w,
-        None => WebviewWindowBuilder::new(&app, "output", WebviewUrl::App("output.html".into()))
-            .title("Slides Forever — Live Output")
-            .decorations(false)
-            .resizable(false)
-            .visible(false)
-            .focused(false)
-            .build()
-            .map_err(|e| e.to_string())?,
-    };
-    let _ = win.set_fullscreen(false);
-    win.set_position(PhysicalPosition::new(m.position().x, m.position().y)).map_err(|e| e.to_string())?;
-    win.set_size(PhysicalSize::new(m.size().width, m.size().height)).map_err(|e| e.to_string())?;
-    let _ = win.set_fullscreen(true);
-    let _ = win.show();
+        .filter_map(|id| mons.iter().find(|m| m.name() == Some(id)).map(|m| (id.clone(), m.clone())))
+        .collect();
+    if targets.is_empty() {
+        return Err("None of those screens are connected any more.".into());
+    }
+    let wanted: Vec<String> = targets.iter().map(|(id, _)| output_label(id)).collect();
+    for w in output_windows(&app) {
+        if !wanted.iter().any(|l| l == w.label()) {
+            let _ = w.close();
+        }
+    }
+    let mut opened = Vec::new();
+    for (i, (id, m)) in targets.iter().enumerate() {
+        let label = output_label(id);
+        let primary = i == 0;
+        let win = match app.get_webview_window(&label) {
+            Some(w) => w,
+            None => WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("output.html".into()))
+                .title("Slides Forever — Live Output")
+                .initialization_script(format!("window.__OUT = {{ primary: {primary} }};"))
+                .decorations(false)
+                .resizable(false)
+                .visible(false)
+                .focused(false)
+                .build()
+                .map_err(|e| e.to_string())?,
+        };
+        let _ = win.set_fullscreen(false);
+        win.set_position(PhysicalPosition::new(m.position().x, m.position().y)).map_err(|e| e.to_string())?;
+        win.set_size(PhysicalSize::new(m.size().width, m.size().height)).map_err(|e| e.to_string())?;
+        let _ = win.set_fullscreen(true);
+        let _ = win.show();
+        let _ = app.emit_to(label.as_str(), "role", json!({ "primary": primary }));
+        opened.push(id.clone());
+    }
+    *state.outputs.lock().unwrap() = targets.iter().map(|(id, _)| (output_label(id), id.clone())).collect();
     if let Some(main) = app.get_webview_window("main") {
         let _ = main.set_focus();
     }
-    Ok(m.name().cloned().unwrap_or(id))
+    Ok(opened)
 }
 
 #[tauri::command]
 fn close_output(app: AppHandle) {
-    if let Some(w) = app.get_webview_window("output") {
+    for w in output_windows(&app) {
         let _ = w.close();
     }
 }
 
+/// Esc on an output window closes just that screen.
 #[tauri::command]
-fn output_open(app: AppHandle) -> bool {
-    app.get_webview_window("output").is_some()
+fn close_this_output(window: WebviewWindow) {
+    let _ = window.close();
+}
+
+/// Display ids that currently have a live output window.
+#[tauri::command]
+fn output_open(app: AppHandle, state: State<AppState>) -> Vec<String> {
+    let open: Vec<String> = output_windows(&app).iter().map(|w| w.label().to_string()).collect();
+    state.outputs.lock().unwrap().iter().filter(|(l, _)| open.contains(l)).map(|(_, id)| id.clone()).collect()
 }
 
 /// Flash a big number on every screen, like Windows "Identify".
@@ -486,7 +530,7 @@ async fn identify_displays(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 fn set_live(app: AppHandle, state: State<AppState>, payload: Value) {
     *state.live.lock().unwrap() = payload.clone();
-    let _ = app.emit_to("output", "live", payload);
+    emit_outputs(&app, "live", payload);
 }
 
 #[tauri::command]
@@ -497,7 +541,37 @@ fn get_live(state: State<AppState>) -> Value {
 /// Video play/pause/restart and similar commands for the output window.
 #[tauri::command]
 fn live_control(app: AppHandle, command: Value) {
-    let _ = app.emit_to("output", "control", command);
+    emit_outputs(&app, "control", command);
+}
+
+/// The main window calls this once its UI is ready: hold the splash briefly so the verse
+/// can be read, then swap the splash for the main window.
+#[tauri::command]
+async fn app_ready(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    let min = Duration::from_millis(2200);
+    let elapsed = state.started.elapsed();
+    if elapsed < min {
+        tokio_sleep(min - elapsed).await;
+    }
+    show_main(&app);
+    Ok(())
+}
+
+async fn tokio_sleep(d: Duration) {
+    let _ = tauri::async_runtime::spawn_blocking(move || std::thread::sleep(d)).await;
+}
+
+fn show_main(app: &AppHandle) {
+    if let Some(main) = app.get_webview_window("main") {
+        if !main.is_visible().unwrap_or(false) {
+            let _ = main.show();
+            let _ = main.maximize();
+            let _ = main.set_focus();
+        }
+    }
+    if let Some(s) = app.get_webview_window("splash") {
+        let _ = s.close();
+    }
 }
 
 /// Output window reports video progress back to the operator.
@@ -536,11 +610,20 @@ fn main() {
                 default_lib,
                 live: Mutex::new(Value::Null),
                 bibles: OnceLock::new(),
+                outputs: Mutex::new(Vec::new()),
+                started: std::time::Instant::now(),
             });
             // Warm up the Bibles in the background so the first search is instant.
             let h = app.handle().clone();
             std::thread::spawn(move || {
                 let _ = h.state::<AppState>().bibles();
+            });
+            // Safety net: never leave the user staring at the splash.
+            let h = app.handle().clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_secs(10));
+                let h2 = h.clone();
+                let _ = h.run_on_main_thread(move || show_main(&h2));
             });
             Ok(())
         })
@@ -548,8 +631,10 @@ fn main() {
             ("main", WindowEvent::CloseRequested { .. }) => {
                 window.app_handle().exit(0);
             }
-            ("output", WindowEvent::Destroyed) => {
-                let _ = window.app_handle().emit_to("main", "output-closed", ());
+            (l, WindowEvent::Destroyed) if l.starts_with("output-") => {
+                let app = window.app_handle();
+                app.state::<AppState>().outputs.lock().unwrap().retain(|(label, _)| label != l);
+                let _ = app.emit_to("main", "output-closed", ());
             }
             _ => {}
         })
@@ -576,7 +661,9 @@ fn main() {
             bible_search,
             import_bible,
             list_displays,
-            open_output,
+            open_outputs,
+            close_this_output,
+            app_ready,
             close_output,
             output_open,
             identify_displays,

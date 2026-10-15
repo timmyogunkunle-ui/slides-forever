@@ -29,8 +29,10 @@
     <section class="panel schedule-panel">
       <div class="panel-head">
         <span class="badge" data-icon="list"></span>
-        <h2>Service</h2>
+        <div class="svc-title"><h2>Service</h2><small id="serviceName">Not saved yet</small></div>
         <div class="grow"></div>
+        <button class="icon-btn" id="btnSaveService" title="Save this service (Ctrl+S)"><span data-icon="save"></span></button>
+        <button class="icon-btn" id="btnServices" title="Open a saved service"><span data-icon="folder"></span></button>
         <button class="icon-btn" id="btnClearSchedule" title="Clear service"><span data-icon="trash"></span></button>
       </div>
       <ol class="schedule" id="schedule"></ol>
@@ -217,7 +219,7 @@
         <div class="grow"></div>
         <button class="icon-btn" data-close title="Close"><span data-icon="x"></span></button>
       </div>
-      <p class="muted">These are the screens connected to this computer. Pick the one your projector or TV is on.</p>
+      <p class="muted">These are the screens connected to this computer. Click every screen you want the live output on — a projector, a TV, or both.</p>
       <div class="display-map" id="displayMap"></div>
       <div class="display-detail" id="displayDetail"></div>
       <div class="modal-foot">
@@ -243,6 +245,48 @@
         <button class="choice" id="libChoose"><span class="badge" data-icon="search"></span><span><b>Choose another folder…</b><small>A USB stick, OneDrive / Dropbox folder, or a shared church drive</small></span></button>
       </div>
       <div class="modal-foot"><span class="muted small">If the folder already has a Slides Forever library, we’ll open it.</span></div>
+    </div>
+  </dialog>
+
+  <!-- Save service -->
+  <dialog class="modal narrow" id="saveServiceDialog">
+    <form class="modal-inner" id="saveServiceForm">
+      <div class="modal-head">
+        <span class="badge" data-icon="save"></span>
+        <h2>Save service</h2>
+        <div class="grow"></div>
+        <button type="button" class="icon-btn" data-close title="Close"><span data-icon="x"></span></button>
+      </div>
+      <div class="modal-body">
+        <label class="field"><span>Name</span><input id="svcName" required placeholder="e.g. Sunday 19 October" /></label>
+        <p class="muted small" id="svcSaveNote"></p>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="btn" data-close>Cancel</button>
+        <div class="grow"></div>
+        <button type="submit" class="btn primary"><span data-icon="save"></span>Save service</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Saved services -->
+  <dialog class="modal" id="servicesDialog">
+    <div class="modal-inner">
+      <div class="modal-head">
+        <span class="badge" data-icon="folder"></span>
+        <h2>Saved services</h2>
+        <div class="grow"></div>
+        <button class="icon-btn" data-close title="Close"><span data-icon="x"></span></button>
+      </div>
+      <div class="modal-body">
+        <label class="search" style="margin-bottom:10px"><span data-icon="search"></span><input id="svcSearch" placeholder="Search saved services…" /></label>
+        <div id="servicesList"></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" id="btnNewService"><span data-icon="plus"></span>Start a new empty service</button>
+        <div class="grow"></div>
+        <button class="btn" data-close>Close</button>
+      </div>
     </div>
   </dialog>
 

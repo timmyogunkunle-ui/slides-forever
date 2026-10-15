@@ -15,7 +15,8 @@
     scriptureBg: null,
     versesPerSlide: 1,
     bible: 0,
-    outputDisplay: null,
+    outputDisplays: [],
+    currentServiceId: null,
     seeded: false,
     theme: 'sand',
     transition: 'fade',
@@ -25,14 +26,14 @@
   };
 
   const st = {
-    songs: [], media: [], groups: [], settings: structuredClone(DEFAULT_SETTINGS), schedule: [],
+    songs: [], media: [], groups: [], services: [], settings: structuredClone(DEFAULT_SETTINGS), schedule: [],
     missing: new Set(),
     bibles: [], books: [], book: null, chapter: null,
     verses: [], verseSel: new Set(), verseAnchor: null, verseMode: 'chapter',
     preview: null, live: null,
     black: false, clear: false, standby: false,
     auto: { on: false, timer: null, next: 0 },
-    outputOn: false, displays: [], pendingDisplay: null,
+    outputOn: false, outputs: [], displays: [], pending: new Set(),
     selSong: null, selMedia: null, schedSel: null, mediaKind: 'all',
     ver: 0,
   };
@@ -415,30 +416,38 @@
     renderSchedule();
   }
 
-  // ---------- output / displays ----------
+  // ---------- output / displays (one or more live screens) ----------
   async function refreshDisplays() {
     try { st.displays = await invoke('list_displays'); } catch (e) { st.displays = []; toast('Could not read displays: ' + e, true); }
     renderDisplayLabel();
   }
 
+  const savedScreens = () => st.settings.outputDisplays || [];
+  const screenName = (d) => `${d.number} · ${d.name}`;
+
   function renderDisplayLabel() {
-    const d = st.displays.find((x) => x.id === st.settings.outputDisplay);
-    $('#displayLabel').textContent = d ? `${d.number} · ${d.name}` : st.settings.outputDisplay ? 'Screen not connected' : 'Choose display';
+    const ids = st.outputs.length ? st.outputs : savedScreens();
+    const ds = ids.map((id) => st.displays.find((x) => x.id === id)).filter(Boolean);
+    $('#displayLabel').textContent = ds.length === 1 ? screenName(ds[0])
+      : ds.length > 1 ? `${ds.length} screens · ${ds.map((d) => d.number).join(' + ')}`
+      : !st.displays.length ? 'Checking screens…'
+      : ids.length ? `Screen ${ids.map((id) => (id.match(/(\d+)$/) || [])[1] || '').filter(Boolean).join(' + ') || ''} not connected`.replace('Screen  not', 'Screen not')
+      : 'Choose display';
   }
 
   function updateOutputUi() {
+    st.outputOn = st.outputs.length > 0;
     $('#btnOutput').classList.toggle('on', st.outputOn);
-    $('#outputLabel').textContent = st.outputOn ? 'Output on' : 'Output off';
+    $('#outputLabel').textContent = !st.outputOn ? 'Output off' : st.outputs.length > 1 ? `Output on · ${st.outputs.length}` : 'Output on';
+    renderDisplayLabel();
     renderLive();
   }
 
-  async function openOutput(id) {
+  async function openOutputs(ids) {
     try {
-      const used = await invoke('open_output', { id });
-      st.outputOn = true;
-      st.settings.outputDisplay = used;
+      st.outputs = await invoke('open_outputs', { ids });
+      st.settings.outputDisplays = st.outputs.slice();
       save('settings');
-      renderDisplayLabel();
       updateOutputUi();
       setTimeout(pushLive, 300);
       return true;
@@ -448,14 +457,14 @@
     }
   }
 
-  /** Make sure the live output window is showing. `ask` = open the picker if we can't decide. */
+  /** Make sure the live output is showing. `askUser` = open the picker if we can't decide. */
   async function ensureOutput(askUser) {
     if (st.outputOn) return true;
     await refreshDisplays();
-    const saved = st.displays.find((d) => d.id === st.settings.outputDisplay && !d.hasControl);
+    const connected = savedScreens().filter((id) => st.displays.some((d) => d.id === id && !d.hasControl));
+    if (connected.length) return openOutputs(connected);
     const other = st.displays.find((d) => !d.hasControl);
-    const target = saved || other;
-    if (target) return openOutput(target.id);
+    if (other) return openOutputs([other.id]);
     if (askUser) openDisplays();
     else toast('Only one screen found — click “Live screen” to choose where the output goes.');
     return false;
@@ -463,8 +472,9 @@
 
   async function openDisplays() {
     await refreshDisplays();
-    const cur = st.displays.find((d) => d.id === st.settings.outputDisplay);
-    st.pendingDisplay = (cur || st.displays.find((d) => !d.hasControl) || st.displays[0])?.id || null;
+    const start = (st.outputs.length ? st.outputs : savedScreens()).filter((id) => st.displays.some((d) => d.id === id));
+    if (!start.length) { const d = st.displays.find((x) => !x.hasControl) || st.displays[0]; if (d) start.push(d.id); }
+    st.pending = new Set(start);
     renderDisplayMap();
     const dlg = $('#displayDialog');
     if (!dlg.open) dlg.showModal();
@@ -481,34 +491,42 @@
     const sc = Math.min((W - pad * 2) / (maxX - minX), (H - pad * 2) / (maxY - minY));
     const offX = (W - (maxX - minX) * sc) / 2, offY = (H - (maxY - minY) * sc) / 2;
     for (const d of ds) {
+      const on = st.pending.has(d.id);
       const b = document.createElement('button');
-      b.className = 'screen' + (d.id === st.pendingDisplay ? ' sel' : '');
+      b.className = 'screen' + (on ? ' sel' : '');
       Object.assign(b.style, {
         left: offX + (d.x - minX) * sc + 4 + 'px', top: offY + (d.y - minY) * sc + 4 + 'px',
         width: d.width * sc - 8 + 'px', height: d.height * sc - 8 + 'px',
       });
       const tags = [];
-      if (st.outputOn && d.id === st.settings.outputDisplay) tags.push('<i class="live">LIVE</i>');
+      if (st.outputs.includes(d.id)) tags.push('<i class="live">LIVE</i>');
       if (d.hasControl) tags.push('<i>Controls are here</i>');
       if (d.primary) tags.push('<i>Main</i>');
-      b.innerHTML = `<span class="n">${d.number}</span><span class="nm">${esc(d.name)}</span><span class="tags">${tags.join('')}</span>`;
-      b.onclick = () => { st.pendingDisplay = d.id; renderDisplayMap(); };
-      b.ondblclick = () => useDisplay();
+      b.innerHTML = `<span class="tick">${on ? S.icon('check') : ''}</span><span class="n">${d.number}</span><span class="nm">${esc(d.name)}</span><span class="tags">${tags.join('')}</span>`;
+      b.title = on ? 'Click to stop using this screen' : 'Click to also show live on this screen';
+      b.onclick = () => { on ? st.pending.delete(d.id) : st.pending.add(d.id); renderDisplayMap(); };
       map.append(b);
     }
-    const d = ds.find((x) => x.id === st.pendingDisplay);
-    $('#displayDetail').innerHTML = d
-      ? `<div class="big">${d.number}. ${esc(d.name)}</div><div class="facts"><span>${d.width} × ${d.height}</span>${d.connection ? `<span>${esc(d.connection)}</span>` : ''}<span>Scale ${Math.round(d.scale * 100)}%</span>${d.primary ? '<span>Main display</span>' : ''}</div>
-         ${d.hasControl ? '<div class="warn">The Slides Forever control window is on this screen — the output will cover it. Press Esc on the output to close it.</div>' : ''}`
-      : '';
+    const chosen = ds.filter((d) => st.pending.has(d.id));
+    const facts = (d) => `<div class="facts"><span>${d.number}. ${esc(d.name)}</span><span>${d.width} × ${d.height}</span>${d.connection ? `<span>${esc(d.connection)}</span>` : ''}</div>`;
+    $('#displayDetail').innerHTML = chosen.length
+      ? `<div class="big">${chosen.length === 1 ? 'Live on 1 screen' : `Live on ${chosen.length} screens`}</div>${chosen.map(facts).join('')}
+         ${chosen.some((d) => d.hasControl) ? '<div class="warn">The Slides Forever control window is on a chosen screen — the output will cover it. Press Esc on that screen to close it.</div>' : ''}`
+      : '<div class="muted">Click one or more screens above. Live will show on every screen you tick.</div>';
+    $('#btnUseDisplay').disabled = !chosen.length;
+    $('#btnUseDisplay').lastChild.textContent = chosen.length > 1 ? `Send live to ${chosen.length} screens` : 'Send live output here';
   }
 
+  window.addEventListener('resize', debounce(() => { if ($('#displayDialog').open) renderDisplayMap(); }, 100));
+
   async function useDisplay() {
-    if (!st.pendingDisplay) return;
-    if (await openOutput(st.pendingDisplay)) {
+    // keep the screens in the order they appear (left to right); the first one plays video sound
+    const ids = st.displays.filter((d) => st.pending.has(d.id)).map((d) => d.id);
+    if (!ids.length) return;
+    if (await openOutputs(ids)) {
       $('#displayDialog').close();
-      const d = st.displays.find((x) => x.id === st.pendingDisplay);
-      toast(`Live output is on screen ${d ? d.number + ' · ' + d.name : ''}`);
+      const names = st.displays.filter((d) => ids.includes(d.id)).map(screenName);
+      toast(`Live output is on ${names.join(' and ')}`);
     }
   }
 
@@ -537,6 +555,7 @@
       ol.append(li);
     });
     $('#scheduleEmpty').hidden = st.schedule.length > 0;
+    renderServiceName();
   }
 
   $('#schedule').addEventListener('click', (e) => {
@@ -629,11 +648,130 @@
 
   $('#btnClearSchedule').onclick = async () => {
     if (!st.schedule.length) return;
-    if (await ask('Remove every item from this service? Your songs and media stay in the library.', 'Clear service')) {
-      st.schedule = [];
-      save('schedule');
-      renderSchedule();
+    if (await ask('Remove every item from this service? Your songs and media stay in the library, and saved services are not changed.', 'Clear service')) {
+      startNewService();
     }
+  };
+
+  // ---------- saved services ----------
+  const currentService = () => st.services.find((s) => s.id === st.settings.currentServiceId) || null;
+  const itemsKey = (items) => JSON.stringify(items.map(({ uid, ...rest }) => rest));
+  const isDirty = () => {
+    const cur = currentService();
+    return cur ? itemsKey(cur.items) !== itemsKey(st.schedule) : st.schedule.length > 0;
+  };
+
+  function renderServiceName() {
+    const el = $('#serviceName');
+    const cur = currentService();
+    el.textContent = cur ? cur.name : st.schedule.length ? 'Not saved yet' : 'New service';
+    el.title = cur ? (isDirty() ? 'Unsaved changes — press Save' : 'Saved') : '';
+    el.classList.toggle('dirty', isDirty());
+  }
+
+  function nextSundayName() {
+    const d = new Date();
+    d.setDate(d.getDate() + ((7 - d.getDay()) % 7));
+    return d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
+  }
+
+  function openSaveService() {
+    const cur = currentService();
+    $('#svcName').value = cur ? cur.name : nextSundayName();
+    $('#svcSaveNote').textContent = cur
+      ? 'Keep the name to update this service, or type a new name to save a separate copy.'
+      : 'Saved services live in your library folder, so you can open them again any time.';
+    $('#saveServiceDialog').showModal();
+    setTimeout(() => $('#svcName').select(), 30);
+  }
+
+  function saveServiceAs(name) {
+    name = name.trim() || nextSundayName();
+    let svc = st.services.find((s) => s.name.toLowerCase() === name.toLowerCase());
+    if (!svc) {
+      svc = { id: uid(), name, created: Date.now() };
+      st.services.push(svc);
+    }
+    Object.assign(svc, { name, items: structuredClone(st.schedule), updated: Date.now() });
+    st.settings.currentServiceId = svc.id;
+    save('services');
+    save('settings');
+    renderServiceName();
+    toast(`Saved “${name}”`);
+  }
+
+  $('#btnSaveService').onclick = openSaveService;
+  $('#saveServiceForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    $('#saveServiceDialog').close();
+    saveServiceAs($('#svcName').value);
+  });
+
+  function startNewService() {
+    st.schedule = [];
+    st.settings.currentServiceId = null;
+    save('schedule');
+    save('settings');
+    renderSchedule();
+  }
+
+  async function confirmLeaveCurrent() {
+    if (!isDirty()) return true;
+    return ask('The current service has changes that aren’t saved. Continue anyway? (Press Save first to keep them.)', 'Continue');
+  }
+
+  function renderServices() {
+    const q = $('#svcSearch').value.trim().toLowerCase();
+    const list = st.services
+      .filter((s) => !q || s.name.toLowerCase().includes(q))
+      .sort((a, b) => (b.updated || 0) - (a.updated || 0));
+    const host = $('#servicesList');
+    if (!list.length) {
+      host.innerHTML = `<div class="empty-state">${S.icon('folder')}<b>${st.services.length ? 'No services match' : 'No saved services yet'}</b><br />Build a service and press the ${S.icon('save', 'inline')} Save button to keep it.</div>`;
+      return;
+    }
+    host.innerHTML = list.map((s) => {
+      const when = new Date(s.updated || s.created).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+      const titles = s.items.slice(0, 4).map(itemTitle).join(' · ');
+      return `<div class="svc-row${s.id === st.settings.currentServiceId ? ' current' : ''}" data-id="${s.id}">
+        <span class="badge">${S.icon('list')}</span>
+        <span class="txt"><b>${esc(s.name)}</b><small>${s.items.length} item${s.items.length === 1 ? '' : 's'} · saved ${when}${titles ? ' · ' + esc(titles) : ''}</small></span>
+        <button class="btn primary" data-act="open">${S.icon('folder')}Open</button>
+        <button class="icon-btn" data-act="delete" title="Delete">${S.icon('trash')}</button>
+      </div>`;
+    }).join('');
+  }
+  $('#btnServices').onclick = () => { $('#svcSearch').value = ''; renderServices(); $('#servicesDialog').showModal(); };
+  $('#svcSearch').addEventListener('input', debounce(renderServices, 120));
+  $('#servicesList').addEventListener('click', async (e) => {
+    const row = e.target.closest('.svc-row');
+    const act = e.target.closest('[data-act]')?.dataset.act;
+    if (!row || !act) return;
+    const svc = st.services.find((s) => s.id === row.dataset.id);
+    if (act === 'open') {
+      if (svc.id !== st.settings.currentServiceId && !(await confirmLeaveCurrent())) return;
+      st.schedule = structuredClone(svc.items).map((it) => ({ ...it, uid: uid() }));
+      st.settings.currentServiceId = svc.id;
+      // keep the saved copy's uids in step so the service doesn't look "changed"
+      svc.items = structuredClone(st.schedule);
+      save('schedule'); save('settings'); save('services');
+      renderSchedule();
+      $('#servicesDialog').close();
+      toast(`Opened “${svc.name}”`);
+    } else if (act === 'delete') {
+      if (!(await ask(`Delete the saved service “${svc.name}”? Your songs and media are not affected.`))) return;
+      st.services = st.services.filter((s) => s.id !== svc.id);
+      if (st.settings.currentServiceId === svc.id) st.settings.currentServiceId = null;
+      save('services'); save('settings');
+      renderServices();
+      renderServiceName();
+    }
+  });
+  $('#btnNewService').onclick = async () => {
+    if (!(await confirmLeaveCurrent())) return;
+    startNewService();
+    $('#servicesDialog').close();
+    toast('Started a new service');
   };
 
   // ---------- library tabs ----------
@@ -1308,7 +1446,7 @@
     if (document.activeElement !== $('#vidSeek')) $('#vidSeek').value = payload.duration ? Math.round((payload.time / payload.duration) * 1000) : 0;
     $('#vidTime').textContent = `${fmtTime(payload.time)} / ${fmtTime(payload.duration)}`;
   });
-  listen('output-closed', () => { st.outputOn = false; updateOutputUi(); });
+  listen('output-closed', async () => { st.outputs = await invoke('output_open'); updateOutputUi(); });
 
   // keyboard
   document.addEventListener('keydown', (e) => {
@@ -1318,7 +1456,8 @@
       return;
     }
     const k = e.key;
-    if (['ArrowRight', 'ArrowDown', 'PageDown', ' '].includes(k)) step(1);
+    if (e.ctrlKey && (k === 's' || k === 'S')) openSaveService();
+    else if (['ArrowRight', 'ArrowDown', 'PageDown', ' '].includes(k)) step(1);
     else if (['ArrowLeft', 'ArrowUp', 'PageUp'].includes(k)) step(-1);
     else if (k === 'Enter') goLive();
     else if (k === 'b' || k === 'B' || k === '.') toggleMode('black');
@@ -1565,7 +1704,7 @@
     $('#libDefaultPath').textContent = info.defaultDir;
     $('#libraryDialog').showModal();
   }
-  const ALL_DOCS = ['songs', 'media', 'groups', 'settings', 'schedule'];
+  const ALL_DOCS = ['songs', 'media', 'groups', 'services', 'settings', 'schedule'];
   async function useLibrary(dir) {
     const wasUnconfigured = st.unconfigured;
     // flush pending saves to the current folder first
@@ -1615,12 +1754,13 @@
     renderGreeting();
     const info = await invoke('library_info');
     st.unconfigured = !info.configured;
-    const [songs, media, groups, settings, schedule] = await Promise.all(
-      ['songs', 'media', 'groups', 'settings', 'schedule'].map((name) => invoke('load_doc', { name }).catch(() => null)),
+    const [songs, media, groups, services, settings, schedule] = await Promise.all(
+      ['songs', 'media', 'groups', 'services', 'settings', 'schedule'].map((name) => invoke('load_doc', { name }).catch(() => null)),
     );
     st.songs = Array.isArray(songs) ? songs : [];
     st.media = Array.isArray(media) ? media : [];
     st.groups = Array.isArray(groups) ? groups : [];
+    st.services = Array.isArray(services) ? services : [];
     st.schedule = Array.isArray(schedule) ? schedule : [];
     if (settings && typeof settings === 'object') {
       const d = structuredClone(DEFAULT_SETTINGS);
@@ -1632,6 +1772,8 @@
       };
     }
     applyTheme();
+    if (st.settings.outputDisplay && !st.settings.outputDisplays.length) st.settings.outputDisplays = [st.settings.outputDisplay];
+    delete st.settings.outputDisplay;
     $('#tickerText').value = st.settings.ticker.text || '';
     if (st.unconfigured) openLibraryDialog(true);
     const groupPages = st.groups.flatMap((g) => g.pages);
@@ -1651,11 +1793,12 @@
     renderSchedule();
     renderPreview();
     renderLive();
-    st.outputOn = await invoke('output_open');
+    st.outputs = await invoke('output_open');
     updateOutputUi();
     refreshDisplays();
     loadBibles().then(() => { if (st.book == null) selectBook(42, 3); });
     $('#songSearch').focus();
+    invoke('app_ready');
   }
-  init().catch((e) => toast('Startup error: ' + e, true));
+  init().catch((e) => { toast('Startup error: ' + e, true); invoke('app_ready'); });
 })();

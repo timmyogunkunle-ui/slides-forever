@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Slides Forever</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; user-select: none; cursor: default; }
+    body {
+      font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+      background: radial-gradient(120% 100% at 50% 0%, #fffaf2 0%, #f4eadc 55%, #ead9c3 100%);
+      color: #3a2718;
+      display: flex; flex-direction: column; align-items: center;
+      border: 1px solid #dccbb6; box-sizing: border-box;
+    }
+    .logo { margin-top: 46px; height: 58px; opacity: 0; animation: rise .6s .05s ease-out forwards; }
+    .verse { margin: 26px 56px 0; text-align: center; opacity: 0; animation: rise .7s .35s ease-out forwards; max-width: 520px; }
+    .verse q { display: block; font: italic 500 19px/1.5 Georgia, "Cambria", serif; quotes: "“" "”"; }
+    .verse cite { display: block; margin-top: 10px; font-style: normal; font-weight: 800; font-size: 12.5px; letter-spacing: .12em; text-transform: uppercase; color: #a8430c; }
+    .loading { position: absolute; top: 18px; right: 20px; display: flex; gap: 6px; }
+    .loading i { width: 7px; height: 7px; border-radius: 50%; background: #d2601a; opacity: .25; animation: dot 1.2s infinite; }
+    .loading i:nth-child(2) { animation-delay: .2s; }
+    .loading i:nth-child(3) { animation-delay: .4s; }
+    .scene { position: absolute; left: 0; right: 0; bottom: 0; height: 130px; pointer-events: none; }
+    .hills { position: absolute; inset: 0; width: 100%; height: 100%; }
+    .flock { position: absolute; bottom: 20px; left: 0; width: 340px; height: 74px; animation: walk 16s linear infinite; opacity: .2; }
+    .flock .bob { animation: bob .9s ease-in-out infinite; transform-box: fill-box; }
+    .flock .bob.b2 { animation-delay: -.3s; }
+    .flock .bob.b3 { animation-delay: -.6s; }
+    .version { position: absolute; bottom: 10px; right: 14px; font-size: 11px; color: #8a7867; }
+    @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+    @keyframes dot { 0%, 100% { opacity: .25; } 40% { opacity: 1; } }
+    @keyframes walk { from { transform: translateX(-360px); } to { transform: translateX(680px); } }
+    @keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
+  </style>
+</head>
+<body>
+  <div class="loading" aria-label="Loading"><i></i><i></i><i></i></div>
+  <img class="logo" src="logo.png" alt="Slides Forever" />
+  <div class="verse"><q id="verse"></q><cite id="ref"></cite></div>
+
+  <div class="scene" aria-hidden="true">
+    <svg class="hills" viewBox="0 0 640 130" preserveAspectRatio="none">
+      <path d="M0 78 C120 50 220 64 330 74 S520 52 640 66 V130 H0Z" fill="#d9c3a5" opacity=".35" />
+      <path d="M0 100 C140 82 260 96 380 98 S560 86 640 94 V130 H0Z" fill="#c9ab86" opacity=".35" />
+    </svg>
+    <!-- shepherd leading the flock (walks left to right) -->
+    <svg class="flock" viewBox="0 0 340 74" fill="#5b3a22" stroke="#5b3a22">
+      <!-- sheep -->
+      <g class="bob">
+        <g transform="translate(8 34)">
+          <circle cx="14" cy="14" r="9" /><circle cx="24" cy="10" r="10" /><circle cx="34" cy="14" r="9" /><circle cx="22" cy="18" r="10" />
+          <ellipse cx="44" cy="12" rx="6" ry="5" />
+          <path d="M14 24v12M20 26v10M30 26v10M36 24v12" stroke-width="2.5" stroke-linecap="round" fill="none" />
+        </g>
+      </g>
+      <g class="bob b2">
+        <g transform="translate(66 38) scale(.85)">
+          <circle cx="14" cy="14" r="9" /><circle cx="24" cy="10" r="10" /><circle cx="34" cy="14" r="9" /><circle cx="22" cy="18" r="10" />
+          <ellipse cx="44" cy="12" rx="6" ry="5" />
+          <path d="M14 24v12M20 26v10M30 26v10M36 24v12" stroke-width="2.8" stroke-linecap="round" fill="none" />
+        </g>
+      </g>
+      <g class="bob b3">
+        <g transform="translate(116 32)">
+          <circle cx="14" cy="14" r="9" /><circle cx="24" cy="10" r="10" /><circle cx="34" cy="14" r="9" /><circle cx="22" cy="18" r="10" />
+          <ellipse cx="44" cy="12" rx="6" ry="5" />
+          <path d="M14 24v12M20 26v10M30 26v10M36 24v12" stroke-width="2.5" stroke-linecap="round" fill="none" />
+        </g>
+      </g>
+      <g class="bob b2">
+        <g transform="translate(176 40) scale(.7)">
+          <circle cx="14" cy="14" r="9" /><circle cx="24" cy="10" r="10" /><circle cx="34" cy="14" r="9" /><circle cx="22" cy="18" r="10" />
+          <ellipse cx="44" cy="12" rx="6" ry="5" />
+          <path d="M14 24v12M20 26v10M30 26v10M36 24v12" stroke-width="3" stroke-linecap="round" fill="none" />
+        </g>
+      </g>
+      <!-- shepherd -->
+      <g transform="translate(250 0)"><g class="bob b3">
+        <circle cx="34" cy="10" r="7" />
+        <path d="M27 9 Q34 -2 42 9 L44 18 Q34 14 24 18Z" />
+        <path d="M24 20 Q34 15 44 20 L52 70 H16Z" />
+        <path d="M44 28 L58 36" stroke-width="4" stroke-linecap="round" fill="none" />
+        <path d="M60 72 V14 q0 -9 -7 -9 q-6 0 -6 6" stroke-width="3" stroke-linecap="round" fill="none" />
+      </g></g>
+    </svg>
+  </div>
+  <div class="version">Loading your library…</div>
+
+  <script>
+    // King James Version (public domain)
+    const VERSES = [
+      ['The LORD is my shepherd; I shall not want.', 'Psalm 23:1'],
+      ['My sheep hear my voice, and I know them, and they follow me.', 'John 10:27'],
+      ['I am the good shepherd: the good shepherd giveth his life for the sheep.', 'John 10:11'],
+      ['Thy word is a lamp unto my feet, and a light unto my path.', 'Psalm 119:105'],
+      ['This is the day which the LORD hath made; we will rejoice and be glad in it.', 'Psalm 118:24'],
+      ['Let every thing that hath breath praise the LORD. Praise ye the LORD.', 'Psalm 150:6'],
+      ['O come, let us sing unto the LORD: let us make a joyful noise to the rock of our salvation.', 'Psalm 95:1'],
+      ['For God so loved the world, that he gave his only begotten Son, that whosoever believeth in him should not perish, but have everlasting life.', 'John 3:16'],
+      ['Trust in the LORD with all thine heart; and lean not unto thine own understanding.', 'Proverbs 3:5'],
+      ['I can do all things through Christ which strengtheneth me.', 'Philippians 4:13'],
+      ['Be still, and know that I am God.', 'Psalm 46:10'],
+      ['The grace of our Lord Jesus Christ be with you all. Amen.', 'Revelation 22:21'],
+      ['Ye are the light of the world. A city that is set on an hill cannot be hid.', 'Matthew 5:14'],
+      ['He shall feed his flock like a shepherd: he shall gather the lambs with his arm.', 'Isaiah 40:11'],
+      ['Sing unto the LORD a new song, and his praise from the end of the earth.', 'Isaiah 42:10'],
+      ['Rejoice in the Lord alway: and again I say, Rejoice.', 'Philippians 4:4'],
+      ['God is our refuge and strength, a very present help in trouble.', 'Psalm 46:1'],
+      ['For where two or three are gathered together in my name, there am I in the midst of them.', 'Matthew 18:20'],
+      ['Let the word of Christ dwell in you richly in all wisdom.', 'Colossians 3:16'],
+      ['The LORD bless thee, and keep thee: the LORD make his face shine upon thee.', 'Numbers 6:24-25'],
+    ];
+    const [text, ref] = VERSES[Math.floor(Math.random() * VERSES.length)];
+    document.getElementById('verse').textContent = text;
+    document.getElementById('ref').textContent = ref + ' · KJV';
+  </script>
+</body>
+</html>
