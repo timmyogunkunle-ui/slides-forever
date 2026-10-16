@@ -17,6 +17,10 @@
     bible: 0,
     outputDisplays: [],
     currentServiceId: null,
+    outputScreens: [],
+    video: { volume: 1, muted: false },
+    videoEnd: 'hold',
+    copyMedia: true,
     seeded: false,
     theme: 'sand',
     transition: 'fade',
@@ -263,6 +267,14 @@
     $('#btnEditPreview').hidden = !(p && p.item.type === 'song');
     $('#btnGoLive').disabled = !p || !p.slides.length;
     renderStage($('#previewStage'), p ? p.slides[p.index] : null);
+    // Videos in Preview get their own controls so you can find the right moment before going live.
+    const pv = $('#previewStage .sl-media video');
+    if (pv && !pv.controls) {
+      pv.controls = true;
+      pv.autoplay = false;
+      pv.pause();
+      pv.loop = false;
+    }
     renderThumbs($('#previewSlides'), p, 'preview');
     $$('#schedule li').forEach((li) => li.classList.toggle('sel', !!p && li.dataset.uid === p.item.uid));
   }
@@ -282,6 +294,7 @@
       fade: st.settings.fade,
       transition: st.settings.transition,
       ticker: st.settings.ticker,
+      video: st.settings.video,
     };
   }
 
@@ -307,6 +320,10 @@
     const cur = L && L.slides[L.index];
     const isVideo = !!cur && cur.kind === 'media' && cur.media.type === 'video' && !st.black && !st.standby;
     $('#videoBar').hidden = !isVideo;
+    if (isVideo) {
+      if (st.live._vkey !== cur) { st.live._vkey = cur; Object.assign(vid, { loop: cur.media.loop !== false && !!cur.media.loop, time: +cur.media.start || 0, endedHandled: false }); }
+      renderVideoBar();
+    }
     const g = L && L.item.type === 'group' && groupById(L.item.id);
     $('#autoBar').hidden = !g;
     if (g) {
@@ -355,7 +372,13 @@
     const p = st.preview;
     if (!p || !p.slides.length) return;
     stopAuto();
-    st.live = { item: p.item, slides: p.slides, index: index ?? p.index };
+    const idx = index ?? p.index;
+    // A video scrubbed in Preview goes live from that point.
+    const pv = $('#previewStage .sl-media video');
+    const slides = p.slides.map((s, i) => (i === idx && s.kind === 'media' && s.media.type === 'video' && pv && pv.currentTime > 0.5
+      ? { ...s, media: { ...s.media, start: pv.currentTime } } : s));
+    if (pv) pv.pause();
+    st.live = { item: p.item, slides, index: idx };
     st.black = st.clear = st.standby = false;
     await ensureOutput(false);
     const g = p.item.type === 'group' && groupById(p.item.id);
@@ -422,7 +445,20 @@
     renderDisplayLabel();
   }
 
-  const savedScreens = () => st.settings.outputDisplays || [];
+  /**
+   * The screens the user picked, as current display ids. Windows can renumber screens after they
+   * are unplugged (DISPLAY2 becomes DISPLAY3), so fall back to matching by monitor name and size.
+   */
+  const savedScreens = () => {
+    const list = st.settings.outputScreens?.length
+      ? st.settings.outputScreens
+      : (st.settings.outputDisplays || []).map((id) => ({ id }));
+    return list.map((s) => {
+      if (st.displays.some((d) => d.id === s.id && (!s.name || d.name === s.name))) return s.id;
+      const byName = s.name && st.displays.find((d) => d.name === s.name && d.width === s.w && d.height === s.h);
+      return byName ? byName.id : s.id;
+    });
+  };
   const screenName = (d) => `${d.number} · ${d.name}`;
 
   function renderDisplayLabel() {
@@ -447,6 +483,11 @@
     try {
       st.outputs = await invoke('open_outputs', { ids });
       st.settings.outputDisplays = st.outputs.slice();
+      st.settings.outputScreens = st.outputs.map((id) => {
+        const d = st.displays.find((x) => x.id === id);
+        return { id, name: d?.name, w: d?.width, h: d?.height };
+      });
+      st.wantOutput = true;
       save('settings');
       updateOutputUi();
       setTimeout(pushLive, 300);
@@ -1173,22 +1214,16 @@
   // ---------- media ----------
   async function addMedia() {
     try {
-      const files = await invoke('pick_media');
-      const added = [];
-      for (const f of files) {
-        if (st.media.some((m) => m.path === f.path)) continue;
-        const m = { id: uid(), name: f.name, path: f.path, kind: f.kind, loop: true };
-        st.media.push(m);
-        added.push(m);
-        st.missing.delete(f.path);
-      }
-      if (added.length) {
-        save('media');
-        renderMedia();
-        toast(`Added ${added.length} item${added.length === 1 ? '' : 's'} to media`);
-      }
-      return added;
-    } catch (e) { toast('Could not add media: ' + e, true); return []; }
+      const copy = st.settings.copyMedia !== false;
+      // The copy only starts after the file picker closes, so show progress from the first event.
+      const un = await listen('media-progress', ({ payload: p }) => {
+        const label = p.count > 1 ? `Copying ${p.name} (${p.index + 1} of ${p.count})` : `Copying ${p.name}`;
+        showBusy(label, p.total ? p.done / p.total : null);
+      });
+      let files;
+      try { files = await invoke('pick_media', { copy }); } finally { un(); hideBusy(); }
+      return addMediaPaths(files.map((f) => ({ path: f.path, name: f.name, kind: f.kind })));
+    } catch (e) { hideBusy(); toast('Could not add media: ' + e, true); return []; }
   }
   $('#btnAddMedia').onclick = addMedia;
 
@@ -1208,7 +1243,9 @@
       if (st.settings.songBg === m.id) tags.push('<i>Song BG</i>');
       if (st.settings.scriptureBg === m.id) tags.push('<i>Bible BG</i>');
       if (st.settings.standby?.mediaId === m.id) tags.push('<i>Standby</i>');
-      if (st.missing.has(m.path)) tags.push('<i style="background:#d0213c">File missing</i>');
+      if (st.missing.has(m.path)) tags.push('<i class="warn">File missing</i>');
+      if (m.unplayable) tags.push('<i class="warn">Won’t play</i>');
+      if (m.kind === 'video' && m.duration) tags.push(`<i class="quiet">${fmtTime(m.duration)}</i>`);
       t.insertAdjacentHTML('beforeend', `<span class="tags">${tags.join('')}</span>
         <button class="icon-btn more" title="More">${S.icon('sliders')}</button>
         <span class="tname">${S.icon(m.kind === 'video' ? 'film' : m.kind === 'gif' ? 'gif' : 'image')}<span>${esc(m.name)}</span></span>`);
@@ -1303,6 +1340,7 @@
     const sb = st.settings.standby;
     $('#setStandbyText').value = sb.text || '';
     $('#setStandbyIdle').checked = !!st.settings.standbyIdle;
+    $('#setCopyMedia').checked = st.settings.copyMedia !== false;
     const tk = st.settings.ticker;
     $('#tkSpeed').value = String(tk.speed);
     $('#tkPosition').value = tk.position;
@@ -1348,6 +1386,7 @@
     save('settings'); renderSettings(); pushLive();
   }, 300));
   $('#setStandbyIdle').addEventListener('change', (e) => { st.settings.standbyIdle = e.target.checked; save('settings'); pushLive(); });
+  $('#setCopyMedia').addEventListener('change', (e) => { st.settings.copyMedia = e.target.checked; save('settings'); });
   ['#tkSpeed', '#tkPosition', '#tkBg', '#tkColor'].forEach((sel) => $(sel).addEventListener('input', () => {
     Object.assign(st.settings.ticker, { speed: +$('#tkSpeed').value, position: $('#tkPosition').value, bg: $('#tkBg').value, color: $('#tkColor').value });
     save('settings'); pushLive();
@@ -1395,8 +1434,27 @@
   $('#btnIdentify').onclick = () => invoke('identify_displays').catch((e) => toast(String(e), true));
   $('#btnRefreshDisplays').onclick = async () => { await refreshDisplays(); renderDisplayMap(); };
   $('#btnUseDisplay').onclick = useDisplay;
-  $('#btnOutputOff').onclick = () => { invoke('close_output'); $('#displayDialog').close(); };
-  $('#btnOutput').onclick = () => (st.outputOn ? invoke('close_output') : ensureOutput(true));
+  const outputOff = () => { st.wantOutput = false; invoke('close_output'); };
+  $('#btnOutputOff').onclick = () => { outputOff(); $('#displayDialog').close(); };
+  $('#btnOutput').onclick = () => (st.outputOn ? outputOff() : ensureOutput(true));
+
+  // Screens plugged in or out while the app is running.
+  listen('displays-changed', async ({ payload }) => {
+    await refreshDisplays();
+    st.outputs = await invoke('output_open');
+    const name = (id) => { const s = (st.settings.outputScreens || []).find((x) => x.id === id); return s?.name || 'A screen'; };
+    for (const id of payload.lost || []) toast(`${name(id)} was disconnected — its live output was closed`, true);
+    // A chosen screen came back (or appeared): put live output back on it.
+    if (st.wantOutput) {
+      const want = savedScreens().filter((id) => st.displays.some((d) => d.id === id));
+      const missing = want.filter((id) => !st.outputs.includes(id));
+      if (missing.length) {
+        if (await openOutputs(want)) toast(`Live output is back on ${missing.map(name).join(' and ')}`);
+      }
+    }
+    updateOutputUi();
+    if ($('#displayDialog').open) renderDisplayMap();
+  });
   $('#btnGoLive').onclick = () => goLive();
   $('#btnBlack').onclick = () => toggleMode('black');
   $('#btnClearText').onclick = () => toggleMode('clear');
@@ -1436,16 +1494,100 @@
   $('#liveSlides').addEventListener('click', (e) => { const t = e.target.closest('.thumb'); if (t) setLiveIndex(+t.dataset.i); });
   $('#previewStage').addEventListener('dblclick', () => goLive());
 
-  // video controls
-  let vidPaused = false;
-  $('#btnVidPlay').onclick = () => invoke('live_control', { command: { action: 'toggle' } });
-  $('#btnVidRestart').onclick = () => invoke('live_control', { command: { action: 'seek', t: 0 } });
-  $('#vidSeek').addEventListener('input', (e) => invoke('live_control', { command: { action: 'seekFrac', f: +e.target.value / 1000 } }));
-  listen('media-status', ({ payload }) => {
-    if (payload.paused !== vidPaused) { vidPaused = payload.paused; setIcon($('#btnVidPlay span'), vidPaused ? 'play' : 'pause'); }
-    if (document.activeElement !== $('#vidSeek')) $('#vidSeek').value = payload.duration ? Math.round((payload.time / payload.duration) * 1000) : 0;
-    $('#vidTime').textContent = `${fmtTime(payload.time)} / ${fmtTime(payload.duration)}`;
+  // ---------- video controls ----------
+  const vctl = (command) => invoke('live_control', { command });
+  const vid = { paused: false, time: 0, duration: 0, loop: false, seeking: false, endedHandled: false, lastSync: 0 };
+
+  function renderVideoBar() {
+    setIcon($('#btnVidPlay [data-icon]'), vid.paused ? 'play' : 'pause');
+    $('#btnVidPlay').title = vid.paused ? 'Play (K)' : 'Pause (K)';
+    if (!vid.seeking) $('#vidSeek').value = vid.duration ? Math.round((vid.time / vid.duration) * 1000) : 0;
+    $('#vidSeek').style.setProperty('--p', (vid.duration ? (vid.time / vid.duration) * 100 : 0) + '%');
+    $('#vidNow').textContent = fmtTime(vid.time);
+    $('#vidDur').textContent = fmtTime(vid.duration);
+    $('#btnVidLoop').classList.toggle('on', vid.loop);
+    const v = st.settings.video;
+    setIcon($('#btnVidMute [data-icon]'), v.muted || v.volume === 0 ? 'mute' : 'volume');
+    $('#btnVidMute').title = v.muted ? 'Unmute' : 'Mute';
+    $('#vidVol').value = Math.round(v.volume * 100);
+    $('#vidEnd').value = st.settings.videoEnd;
+  }
+
+  $('#btnVidPlay').onclick = () => vctl({ action: 'toggle' });
+  $('#btnVidBack').onclick = () => vctl({ action: 'seekBy', d: -10 });
+  $('#btnVidFwd').onclick = () => vctl({ action: 'seekBy', d: 10 });
+  $('#vidSeek').addEventListener('pointerdown', () => (vid.seeking = true));
+  $('#vidSeek').addEventListener('input', (e) => {
+    vid.time = (+e.target.value / 1000) * vid.duration;
+    $('#vidNow').textContent = fmtTime(vid.time);
+    vctl({ action: 'seekFrac', f: +e.target.value / 1000 });
   });
+  $('#vidSeek').addEventListener('change', () => (vid.seeking = false));
+  $('#btnVidLoop').onclick = () => {
+    vid.loop = !vid.loop;
+    const cur = st.live && st.live.slides[st.live.index];
+    if (cur?.media) cur.media.loop = vid.loop;
+    vctl({ action: 'loop', on: vid.loop });
+    renderVideoBar();
+  };
+  $('#btnVidMute').onclick = () => {
+    const v = st.settings.video;
+    v.muted = !v.muted;
+    if (!v.muted && v.volume === 0) v.volume = 0.8;
+    save('settings');
+    vctl({ action: 'mute', on: v.muted });
+    vctl({ action: 'volume', v: v.volume });
+    renderVideoBar();
+  };
+  $('#vidVol').addEventListener('input', (e) => {
+    const v = st.settings.video;
+    v.volume = +e.target.value / 100;
+    v.muted = v.volume === 0;
+    vctl({ action: 'volume', v: v.volume });
+    vctl({ action: 'mute', on: v.muted });
+    renderVideoBar();
+  });
+  $('#vidVol').addEventListener('change', () => save('settings'));
+  $('#vidEnd').addEventListener('input', (e) => { st.settings.videoEnd = e.target.value; save('settings'); });
+
+  listen('media-status', ({ payload: s }) => {
+    if (s.error) { toast('This video can’t be played. Convert it to MP4 (H.264) and add it again.', true); return; }
+    Object.assign(vid, { paused: s.paused, time: s.time, duration: s.duration, loop: s.loop });
+    renderVideoBar();
+    // keep the small live monitor showing the same moment as the projector
+    const mon = $('#liveStage .sl-media video');
+    if (mon) {
+      if (Math.abs(mon.currentTime - s.time) > 0.4) mon.currentTime = s.time;
+      if (s.paused && !mon.paused) mon.pause();
+      if (!s.paused && mon.paused && !s.ended) mon.play().catch(() => {});
+    }
+    // keep extra screens in step with the first one
+    if (st.outputs.length > 1 && Date.now() - vid.lastSync > 1000) {
+      vid.lastSync = Date.now();
+      vctl({ action: 'sync', t: s.time, paused: s.paused });
+    }
+    if (s.ended && !s.loop && !vid.endedHandled) {
+      vid.endedHandled = true;
+      onVideoEnded();
+    }
+    if (!s.ended) vid.endedHandled = false;
+  });
+
+  function onVideoEnded() {
+    const what = st.settings.videoEnd;
+    if (what === 'black') { st.black = true; pushLive(); }
+    else if (what === 'standby') { st.standby = true; pushLive(); }
+    else if (what === 'next') goLiveNextInService();
+  }
+
+  /** Put the service item after the one that is live straight onto the screen. */
+  function goLiveNextInService() {
+    const i = st.live ? st.schedule.findIndex((x) => x.uid === st.live.item.uid) : -1;
+    const next = i >= 0 ? st.schedule[i + 1] : null;
+    if (!next) { toast('That was the last item in the service'); return; }
+    setPreview(next);
+    goLive(0);
+  }
   listen('output-closed', async () => { st.outputs = await invoke('output_open'); updateOutputUi(); });
 
   // keyboard
@@ -1460,6 +1602,9 @@
     else if (['ArrowRight', 'ArrowDown', 'PageDown', ' '].includes(k)) step(1);
     else if (['ArrowLeft', 'ArrowUp', 'PageUp'].includes(k)) step(-1);
     else if (k === 'Enter') goLive();
+    else if (!$('#videoBar').hidden && (k === 'k' || k === 'K')) vctl({ action: 'toggle' });
+    else if (!$('#videoBar').hidden && (k === 'j' || k === 'J')) vctl({ action: 'seekBy', d: -10 });
+    else if (!$('#videoBar').hidden && (k === 'l' || k === 'L')) vctl({ action: 'seekBy', d: 10 });
     else if (k === 'b' || k === 'B' || k === '.') toggleMode('black');
     else if (k === 'c' || k === 'C') toggleMode('clear');
     else if (k === 's' || k === 'S') toggleMode('standby');
@@ -1476,10 +1621,17 @@
 
   // ---------- busy overlay ----------
   async function busy(text, fn) {
-    $('#busyText').textContent = text;
-    $('#busy').hidden = false;
-    try { return await fn(); } finally { $('#busy').hidden = true; }
+    showBusy(text, null);
+    try { return await fn(); } finally { hideBusy(); }
   }
+  /** `frac` = 0..1 shows a progress bar, null shows just the spinner. */
+  function showBusy(text, frac) {
+    $('#busyText').textContent = text;
+    $('#busyProgress').hidden = frac == null;
+    if (frac != null) $('#busyBar').style.width = Math.round(frac * 100) + '%';
+    $('#busy').hidden = false;
+  }
+  function hideBusy() { $('#busy').hidden = true; }
 
   // ---------- slide groups ----------
   const stemOf = (p) => p.split(/[\\/]/).pop().replace(/\.[^.]+$/, '');
@@ -1602,9 +1754,36 @@
     if (files.length) await handleDroppedFiles(files);
   });
 
-  async function saveDropped(file) {
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    return invoke('save_dropped', bytes, { headers: { 'x-name': encodeURIComponent(file.name) } });
+  const CHUNK = 8 * 1024 * 1024;
+  /**
+   * Copy dropped files into the library in 8 MB pieces (a big video never sits in memory at once),
+   * with one progress bar across all of them. Returns the saved paths in order.
+   */
+  async function uploadFiles(files, verb = 'Adding') {
+    const total = files.reduce((n, f) => n + f.size, 0) || 1;
+    let sent = 0;
+    const paths = [];
+    try {
+      for (const [i, f] of files.entries()) {
+        const label = files.length > 1 ? `${verb} ${f.name} (${i + 1} of ${files.length})` : `${verb} ${f.name}`;
+        showBusy(label, sent / total);
+        const path = await invoke('begin_upload', { name: f.name });
+        for (let off = 0; off < f.size || off === 0; off += CHUNK) {
+          const bytes = new Uint8Array(await f.slice(off, off + CHUNK).arrayBuffer());
+          const last = off + CHUNK >= f.size;
+          const headers = { 'x-path': encodeURIComponent(path) };
+          if (last) headers['x-last'] = '1';
+          await invoke('append_upload', bytes, { headers });
+          sent += bytes.length;
+          showBusy(label, sent / total);
+          if (last) break;
+        }
+        paths.push(path);
+      }
+    } finally {
+      hideBusy();
+    }
+    return paths;
   }
 
   async function handleDroppedFiles(files) {
@@ -1613,7 +1792,7 @@
     const docs = files.filter((f) => ['pdf', 'ppt', 'pptx', 'pps', 'ppsx', 'pptm', 'odp'].includes(ext(f)));
     const pics = files.filter((f) => ['png', 'jpg', 'jpeg', 'bmp', 'webp', 'avif'].includes(ext(f)));
     const movs = files.filter((f) => ['mp4', 'm4v', 'webm', 'mov', 'ogv', 'gif'].includes(ext(f)));
-    const skipped = files.length - txt.length - docs.length - pics.length - movs.length;
+    const unsupported = files.filter((f) => ![...txt, ...docs, ...pics, ...movs].includes(f));
     try {
       if (txt.length) {
         let n = 0;
@@ -1624,35 +1803,69 @@
         toast(`Imported ${n} song${n === 1 ? '' : 's'}`);
       }
       for (const f of docs) {
-        const path = await busy(`Copying ${f.name}…`, () => saveDropped(f));
+        const [path] = await uploadFiles([f]);
         await createGroup([path], f.name.replace(/\.[^.]+$/, ''));
       }
       if (pics.length === 1 && !docs.length) {
-        const path = await saveDropped(pics[0]);
-        addMediaPaths([{ path, name: stemOf(path), kind: 'image' }]);
+        const [path] = await uploadFiles(pics);
+        await addMediaPaths([{ path, name: stemOf(path), kind: 'image' }]);
       } else if (pics.length) {
-        const paths = await busy('Copying pictures…', () => Promise.all(pics.map(saveDropped)));
-        await createGroup(paths, pics.length === 1 ? stemOf(paths[0]) : 'Picture slides');
+        const paths = await uploadFiles(pics);
+        await createGroup(paths, 'Picture slides');
       }
       if (movs.length) {
-        const saved = await busy(`Copying ${movs.length} file${movs.length === 1 ? '' : 's'}…`, () => Promise.all(movs.map(saveDropped)));
-        addMediaPaths(saved.map((p) => ({ path: p, name: stemOf(p), kind: /\.gif$/i.test(p) ? 'gif' : 'video' })));
+        const saved = await uploadFiles(movs);
+        await addMediaPaths(saved.map((p) => ({ path: p, name: stemOf(p), kind: /\.gif$/i.test(p) ? 'gif' : 'video' })));
       }
-      if (skipped) toast(`${skipped} file${skipped === 1 ? ' was' : 's were'} skipped (unsupported type)`, true);
+      if (unsupported.length) {
+        const names = unsupported.map((f) => f.name).join(', ');
+        const video = unsupported.some((f) => /\.(wmv|avi|mkv|flv|mpg|mpeg|3gp)$/i.test(f.name));
+        toast(video ? `Skipped ${names}: convert videos to MP4 (H.264) first.` : `Skipped ${names}: that file type isn’t supported.`, true);
+      }
     } catch (err) {
       toast(String(err), true);
     }
   }
 
-  function addMediaPaths(items) {
-    let n = 0;
+  /** Load a video's details. Resolves null when the built-in player can't decode it. */
+  function probeVideo(path) {
+    return new Promise((resolve) => {
+      const v = document.createElement('video');
+      v.preload = 'metadata';
+      v.muted = true;
+      const done = (r) => { clearTimeout(t); v.removeAttribute('src'); v.load(); resolve(r); };
+      const t = setTimeout(() => done({ duration: 0 }), 8000);
+      v.onloadedmetadata = () => done(v.videoWidth ? { duration: v.duration } : null);
+      v.onerror = () => done(null);
+      v.src = S.src(path);
+    });
+  }
+
+  async function addMediaPaths(items) {
+    const added = [];
+    const bad = [];
     for (const f of items) {
       if (st.media.some((m) => m.path === f.path)) continue;
-      st.media.push({ id: uid(), name: f.name, path: f.path, kind: f.kind, loop: true });
-      n++;
+      const m = { id: uid(), name: f.name, path: f.path, kind: f.kind, loop: f.kind !== 'video' };
+      if (f.kind === 'video') {
+        const info = await probeVideo(f.path);
+        if (!info) { bad.push(f.name); m.unplayable = true; }
+        else m.duration = info.duration;
+      }
+      st.media.push(m);
+      added.push(m);
+      st.missing.delete(f.path);
     }
-    if (n) { save('media'); renderMedia(); showTab('media'); toast(`Added ${n} item${n === 1 ? '' : 's'} to media`); }
+    if (added.length) {
+      save('media');
+      renderMedia();
+      showTab('media');
+      toast(`Added ${added.length} item${added.length === 1 ? '' : 's'} to media`);
+    }
+    if (bad.length) toast(`${bad.join(', ')} won’t play here. Convert to MP4 (H.264) and add it again.`, true);
+    return added;
   }
+
 
   // ---------- song merge (txt + EasyWorship) ----------
   function mergeSongs(list, replace) {
@@ -1769,6 +1982,7 @@
         style: { ...S.DEFAULT_STYLE, ...(settings.style || {}) },
         standby: { ...d.standby, ...(settings.standby || {}) },
         ticker: { ...d.ticker, ...(settings.ticker || {}) },
+        video: { ...d.video, ...(settings.video || {}) },
       };
     }
     applyTheme();

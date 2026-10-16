@@ -1,6 +1,6 @@
 [package]
 name = "slides-forever"
-version = "1.1.0"
+version = "1.2.0"
 description = "Slides Forever - fast, simple worship presentation software"
 edition = "2021"
 

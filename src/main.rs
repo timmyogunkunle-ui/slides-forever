@@ -230,27 +230,15 @@ fn delete_slide_group(state: State<AppState>, id: String) {
     }
 }
 
-/// Files dragged in from Explorer arrive as bytes; keep a copy in <library>/imports.
-#[tauri::command]
-fn save_dropped(app: AppHandle, state: State<AppState>, request: tauri::ipc::Request) -> Result<String, String> {
-    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
-        return Err("expected file bytes".into());
-    };
-    let raw_name = request
-        .headers()
-        .get("x-name")
-        .and_then(|v| v.to_str().ok())
-        .map(|s| percent_decode(s))
-        .unwrap_or_else(|| "file".into());
-    let name: String = Path::new(&raw_name)
+/// A file name that is safe on Windows and not already taken in `dir`.
+fn unique_path(dir: &Path, raw_name: &str) -> PathBuf {
+    let name: String = Path::new(raw_name)
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| "file".into())
         .chars()
         .map(|c| if r#"<>:"/\|?*"#.contains(c) { '_' } else { c })
         .collect();
-    let dir = state.lib().join("imports");
-    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let mut dest = dir.join(&name);
     let mut n = 1;
     while dest.exists() {
@@ -259,9 +247,44 @@ fn save_dropped(app: AppHandle, state: State<AppState>, request: tauri::ipc::Req
         dest = dir.join(format!("{stem} ({n}){ext}"));
         n += 1;
     }
-    fs::write(&dest, bytes).map_err(|e| e.to_string())?;
-    let _ = app.asset_protocol_scope().allow_file(&dest);
+    dest
+}
+
+/// Files dragged in from Explorer arrive as bytes, sent in pieces so a 2 GB video never has to
+/// sit in memory. `begin_upload` reserves a file in <library>/imports, `append_upload` adds a piece.
+#[tauri::command]
+fn begin_upload(state: State<AppState>, name: String) -> Result<String, String> {
+    let dir = state.lib().join("imports");
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let dest = unique_path(&dir, &name);
+    fs::write(&dest, b"").map_err(|e| e.to_string())?;
     Ok(dest.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+fn append_upload(app: AppHandle, state: State<AppState>, request: tauri::ipc::Request) -> Result<(), String> {
+    use std::io::Write;
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err("expected file bytes".into());
+    };
+    let path = request
+        .headers()
+        .get("x-path")
+        .and_then(|v| v.to_str().ok())
+        .map(percent_decode)
+        .ok_or("missing path")?;
+    let path = PathBuf::from(path);
+    // Only ever write inside this library's imports folder.
+    let imports = state.lib().join("imports");
+    if path.parent() != Some(imports.as_path()) {
+        return Err("refusing to write outside the library".into());
+    }
+    let mut f = fs::OpenOptions::new().append(true).open(&path).map_err(|e| e.to_string())?;
+    f.write_all(bytes).map_err(|e| e.to_string())?;
+    if request.headers().get("x-last").is_some() {
+        let _ = app.asset_protocol_scope().allow_file(&path);
+    }
+    Ok(())
 }
 
 fn percent_decode(s: &str) -> String {
@@ -311,8 +334,10 @@ async fn import_songs(window: WebviewWindow) -> Result<Vec<library::ImportedSong
     Ok(out)
 }
 
+/// Pick images/videos/GIFs. With `copy`, each file is copied into <library>/media (with progress
+/// events) so the library keeps working if the original is moved or was on a USB stick.
 #[tauri::command]
-async fn pick_media(app: AppHandle, window: WebviewWindow) -> Result<Vec<library::MediaFile>, String> {
+async fn pick_media(app: AppHandle, state: State<'_, AppState>, window: WebviewWindow, copy: bool) -> Result<Vec<library::MediaFile>, String> {
     let all: Vec<&str> = library::IMAGE_EXT.iter().chain(library::GIF_EXT).chain(library::VIDEO_EXT).copied().collect();
     let Some(files) = rfd::FileDialog::new()
         .set_title("Add images, videos and GIFs")
@@ -325,19 +350,68 @@ async fn pick_media(app: AppHandle, window: WebviewWindow) -> Result<Vec<library
     else {
         return Ok(vec![]);
     };
+    let files: Vec<PathBuf> = files.into_iter().filter(|p| library::media_kind(p).is_some()).collect();
+    let media_dir = state.lib().join("media");
+    let app2 = app.clone();
+    let copied = tauri::async_runtime::spawn_blocking(move || -> Result<Vec<(PathBuf, PathBuf)>, String> {
+        let mut out = Vec::new();
+        let count = files.len();
+        for (i, src) in files.into_iter().enumerate() {
+            // Already inside the library? Use it where it is.
+            if !copy || src.starts_with(&media_dir) {
+                out.push((src.clone(), src));
+                continue;
+            }
+            fs::create_dir_all(&media_dir).map_err(|e| e.to_string())?;
+            let dest = unique_path(&media_dir, &src.to_string_lossy());
+            let name = src.file_name().unwrap_or_default().to_string_lossy().to_string();
+            copy_with_progress(&src, &dest, |done, total| {
+                let _ = app2.emit_to("main", "media-progress", json!({ "name": name, "done": done, "total": total, "index": i, "count": count }));
+            })
+            .map_err(|e| format!("Couldn't copy {name}: {e}"))?;
+            out.push((src, dest));
+        }
+        Ok(out)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
     let scope = app.asset_protocol_scope();
-    Ok(files
+    Ok(copied
         .into_iter()
-        .filter_map(|p| {
-            let kind = library::media_kind(&p)?;
-            let _ = scope.allow_file(&p);
+        .filter_map(|(src, dest)| {
+            let kind = library::media_kind(&dest)?;
+            let _ = scope.allow_file(&dest);
             Some(library::MediaFile {
-                name: p.file_stem().unwrap_or_default().to_string_lossy().to_string(),
-                path: p.to_string_lossy().into_owned(),
+                name: src.file_stem().unwrap_or_default().to_string_lossy().to_string(),
+                path: dest.to_string_lossy().into_owned(),
                 kind,
             })
         })
         .collect())
+}
+
+fn copy_with_progress(src: &Path, dest: &Path, mut progress: impl FnMut(u64, u64)) -> std::io::Result<()> {
+    use std::io::{Read, Write};
+    let total = fs::metadata(src)?.len();
+    let mut r = fs::File::open(src)?;
+    let mut w = fs::File::create(dest)?;
+    let mut buf = vec![0u8; 4 << 20];
+    let mut done = 0u64;
+    let mut last = std::time::Instant::now();
+    loop {
+        let n = r.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        w.write_all(&buf[..n])?;
+        done += n as u64;
+        if last.elapsed() > Duration::from_millis(120) {
+            progress(done, total);
+            last = std::time::Instant::now();
+        }
+    }
+    progress(total, total);
+    Ok(())
 }
 
 /// Lets the webview load previously imported media files from wherever they live on disk.
@@ -424,6 +498,78 @@ fn emit_outputs(app: &AppHandle, event: &str, payload: Value) {
 }
 
 /// Show the live output on every display in `ids` (first one plays video sound) and close the rest.
+/// Cover `m` exactly with a borderless window. We deliberately avoid OS "fullscreen": asking for
+/// fullscreen straight after a move races the move, and both outputs can land on the same screen.
+/// Instead we move, wait until Windows reports the window on the right monitor (it may rescale it
+/// for that monitor's DPI), then size it to the monitor's exact pixels and check again.
+async fn place_on_monitor(win: &WebviewWindow, m: &tauri::Monitor) {
+    let pos = *m.position();
+    let size = *m.size();
+    let _ = win.set_fullscreen(false);
+    for _attempt in 0..3 {
+        let _ = win.set_position(PhysicalPosition::new(pos.x, pos.y));
+        for _ in 0..20 {
+            let here = win.current_monitor().ok().flatten().and_then(|c| c.name().cloned());
+            if here.as_ref() == m.name() {
+                break;
+            }
+            tokio_sleep(Duration::from_millis(25)).await;
+        }
+        let _ = win.set_size(PhysicalSize::new(size.width, size.height));
+        tokio_sleep(Duration::from_millis(60)).await;
+        // A DPI change during the move can resize the window again — re-apply and verify.
+        let _ = win.set_position(PhysicalPosition::new(pos.x, pos.y));
+        let _ = win.set_size(PhysicalSize::new(size.width, size.height));
+        let ok_pos = win.outer_position().map(|p| p.x == pos.x && p.y == pos.y).unwrap_or(false);
+        let ok_size = win.outer_size().map(|s| s.width == size.width && s.height == size.height).unwrap_or(false);
+        if ok_pos && ok_size {
+            return;
+        }
+        tokio_sleep(Duration::from_millis(80)).await;
+    }
+}
+
+/// Watches for screens being plugged in or unplugged. If a screen that is showing live output
+/// disappears, its window is closed (otherwise Windows would dump it onto the operator's screen).
+fn watch_displays(app: AppHandle) {
+    std::thread::spawn(move || {
+        let mut last: Vec<String> = Vec::new();
+        loop {
+            std::thread::sleep(Duration::from_millis(1500));
+            let Ok(mons) = app.available_monitors() else { continue };
+            let mut now: Vec<String> = mons.iter().filter_map(|m| m.name().cloned()).collect();
+            now.sort();
+            if now == last {
+                continue;
+            }
+            let first_run = last.is_empty();
+            last = now.clone();
+            if first_run {
+                continue;
+            }
+            let lost: Vec<(String, String)> = app
+                .state::<AppState>()
+                .outputs
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|(_, id)| !now.contains(id))
+                .cloned()
+                .collect();
+            for (label, _) in &lost {
+                if let Some(w) = app.get_webview_window(label) {
+                    let _ = w.close();
+                }
+            }
+            let _ = app.emit_to(
+                "main",
+                "displays-changed",
+                json!({ "lost": lost.iter().map(|(_, id)| id).collect::<Vec<_>>() }),
+            );
+        }
+    });
+}
+
 #[tauri::command]
 async fn open_outputs(app: AppHandle, state: State<'_, AppState>, ids: Vec<String>) -> Result<Vec<String>, String> {
     let mons = displays::monitors(&app)?;
@@ -440,6 +586,10 @@ async fn open_outputs(app: AppHandle, state: State<'_, AppState>, ids: Vec<Strin
             let _ = w.close();
         }
     }
+    let control = app
+        .get_webview_window("main")
+        .and_then(|w| w.current_monitor().ok().flatten())
+        .and_then(|m| m.name().cloned());
     let mut opened = Vec::new();
     for (i, (id, m)) in targets.iter().enumerate() {
         let label = output_label(id);
@@ -451,15 +601,16 @@ async fn open_outputs(app: AppHandle, state: State<'_, AppState>, ids: Vec<Strin
                 .initialization_script(format!("window.__OUT = {{ primary: {primary} }};"))
                 .decorations(false)
                 .resizable(false)
+                .shadow(false)
+                .skip_taskbar(true)
                 .visible(false)
                 .focused(false)
                 .build()
                 .map_err(|e| e.to_string())?,
         };
-        let _ = win.set_fullscreen(false);
-        win.set_position(PhysicalPosition::new(m.position().x, m.position().y)).map_err(|e| e.to_string())?;
-        win.set_size(PhysicalSize::new(m.size().width, m.size().height)).map_err(|e| e.to_string())?;
-        let _ = win.set_fullscreen(true);
+        place_on_monitor(&win, m).await;
+        // Keep the projector window above stray windows, but never above the operator's own screen.
+        let _ = win.set_always_on_top(control.as_deref() != Some(id.as_str()));
         let _ = win.show();
         let _ = app.emit_to(label.as_str(), "role", json!({ "primary": primary }));
         opened.push(id.clone());
@@ -618,6 +769,7 @@ fn main() {
             std::thread::spawn(move || {
                 let _ = h.state::<AppState>().bibles();
             });
+            watch_displays(app.handle().clone());
             // Safety net: never leave the user staring at the splash.
             let h = app.handle().clone();
             std::thread::spawn(move || {
@@ -650,7 +802,8 @@ fn main() {
             pick_slide_files,
             make_slide_group,
             delete_slide_group,
-            save_dropped,
+            begin_upload,
+            append_upload,
             parse_song,
             import_songs,
             pick_media,

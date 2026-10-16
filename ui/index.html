@@ -63,7 +63,7 @@
     <!-- Live -->
     <section class="panel live-panel" id="livePanel">
       <div class="panel-head">
-        <span class="live-chip"><i></i>LIVE</span>
+        <span class="live-chip"><i></i>Live</span>
         <span class="item-title" id="liveTitle">Nothing live</span>
         <div class="grow"></div>
         <select class="mini-select" id="liveTransition" title="Transition">
@@ -79,11 +79,29 @@
           <button class="tool" id="btnStandby" title="Standby screen (S)"><span data-icon="pause"></span><b>Standby</b></button>
         </div>
       </div>
-      <div class="bar" id="videoBar" hidden>
-        <button class="icon-btn" id="btnVidPlay" title="Play / pause"><span data-icon="pause"></span></button>
-        <button class="icon-btn" id="btnVidRestart" title="Restart"><span data-icon="restart"></span></button>
-        <input type="range" id="vidSeek" min="0" max="1000" value="0" />
-        <span class="time" id="vidTime">0:00</span>
+      <div class="vbar" id="videoBar" hidden>
+        <div class="vrow">
+          <button class="icon-btn vplay" id="btnVidPlay" title="Play / pause (K)"><span data-icon="pause"></span></button>
+          <button class="icon-btn" id="btnVidBack" title="Back 10 seconds (J)"><span data-icon="rewind"></span></button>
+          <button class="icon-btn" id="btnVidFwd" title="Forward 10 seconds (L)"><span data-icon="forward"></span></button>
+          <span class="vtime" id="vidNow">0:00</span>
+          <input type="range" class="vseek" id="vidSeek" min="0" max="1000" value="0" step="1" aria-label="Video position" />
+          <span class="vtime" id="vidDur">0:00</span>
+        </div>
+        <div class="vrow">
+          <button class="icon-btn" id="btnVidMute" title="Mute"><span data-icon="volume"></span></button>
+          <input type="range" class="vvol" id="vidVol" min="0" max="100" value="100" aria-label="Volume" />
+          <button class="pill-btn" id="btnVidLoop" title="Play this video on repeat"><span data-icon="loop"></span><span>Loop</span></button>
+          <div class="grow"></div>
+          <label class="vend">When it ends
+            <select class="mini-select" id="vidEnd">
+              <option value="hold">Hold last frame</option>
+              <option value="black">Go to black</option>
+              <option value="standby">Show standby</option>
+              <option value="next">Next in service</option>
+            </select>
+          </label>
+        </div>
       </div>
       <div class="bar" id="autoBar" hidden>
         <button class="pill-btn" id="btnAutoPlay"><span data-icon="play"></span><span>Auto-play</span></button>
@@ -379,6 +397,9 @@
             <label class="field"><span>Bar colour</span><input type="color" id="tkBg" /></label>
             <label class="field"><span>Text colour</span><input type="color" id="tkColor" /></label>
           </div>
+          <h3>Pictures and videos</h3>
+          <div class="checks"><label><input type="checkbox" id="setCopyMedia" /> Copy them into my library folder when adding</label></div>
+          <p class="muted small">Recommended: your media keeps working if the original is moved, and travels with your library to another computer. Videos play best as MP4 (H.264).</p>
           <h3>Backgrounds</h3>
           <div class="field"><span>Default song background</span><div class="bg-picker" id="setSongBg"></div></div>
           <div class="field"><span>Default scripture background</span><div class="bg-picker" id="setScriptureBg"></div></div>
@@ -419,7 +440,7 @@
   <div class="drop-overlay" id="dropOverlay" hidden>
     <div class="drop-card"><span data-icon="upload"></span><b>Drop to add</b><span>PDF &amp; PowerPoint → slide group · pictures → slide group · videos &amp; GIFs → media · .txt → songs</span></div>
   </div>
-  <div class="busy" id="busy" hidden><div class="busy-card"><div class="spinner"></div><span id="busyText">Working…</span></div></div>
+  <div class="busy" id="busy" hidden><div class="busy-card"><div class="spinner"></div><div class="busy-body"><span id="busyText">Working…</span><div class="busy-progress" id="busyProgress" hidden><i id="busyBar"></i></div></div></div></div>
   <div class="ctx-menu" id="ctxMenu" hidden></div>
   <div class="toasts" id="toasts"></div>
 

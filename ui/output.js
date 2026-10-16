@@ -63,11 +63,19 @@
     if (mediaWrap._key !== mKey) {
       mediaVideo = null;
       swap(mediaWrap, mKey, isMedia ? () => {
-        const el = S.mediaElement(slide.media, { muted: !primary, play: true });
-        if (el.tagName === 'VIDEO') { mediaVideo = el; el.muted = !primary; } // only one screen plays sound
+        const el = S.mediaElement(slide.media, { muted: true, play: true });
+        if (el.tagName === 'VIDEO') {
+          mediaVideo = el;
+          const start = +slide.media.start || 0;
+          if (start > 0) el.addEventListener('loadedmetadata', () => { el.currentTime = Math.min(start, (el.duration || start) - 0.1); }, { once: true });
+          el.addEventListener('ended', () => sendStatus(true));
+          el.addEventListener('error', () => primary && invoke('media_status', { status: { error: true } }));
+        }
         return el;
       } : null);
     }
+    videoPrefs = p.video || videoPrefs;
+    applyVideoPrefs();
 
     // text
     const hasText = isText || (isBrand && slide.text);
@@ -78,22 +86,54 @@
   }
 
   listen('live', ({ payload }) => apply(payload));
-  listen('role', ({ payload }) => {
-    primary = !!payload.primary;
-    if (mediaVideo) mediaVideo.muted = !primary;
-  });
-  listen('control', ({ payload }) => {
+  // Volume / mute come from the operator. Only the first screen ever makes sound.
+  let videoPrefs = { volume: 1, muted: false };
+  function applyVideoPrefs() {
     const v = mediaVideo;
     if (!v) return;
-    if (payload.action === 'toggle') v.paused ? v.play() : v.pause();
-    if (payload.action === 'seek') { v.currentTime = payload.t || 0; v.play(); }
-    if (payload.action === 'seekFrac' && v.duration) v.currentTime = payload.f * v.duration;
+    v.volume = Math.max(0, Math.min(1, +videoPrefs.volume));
+    v.muted = !primary || !!videoPrefs.muted;
+  }
+
+  listen('role', ({ payload }) => {
+    primary = !!payload.primary;
+    applyVideoPrefs();
   });
 
-  setInterval(() => {
+  listen('control', ({ payload: c }) => {
     const v = mediaVideo;
-    if (primary && v && v.isConnected) invoke('media_status', { status: { time: v.currentTime, duration: v.duration || 0, paused: v.paused } });
-  }, 300);
+    if (!v) return;
+    const clamp = (t) => Math.max(0, Math.min(t, (v.duration || t) - 0.05));
+    switch (c.action) {
+      case 'toggle': v.paused ? v.play() : v.pause(); break;
+      case 'play': v.play(); break;
+      case 'pause': v.pause(); break;
+      case 'seek': v.currentTime = clamp(c.t || 0); if (c.play) v.play(); break;
+      case 'seekBy': v.currentTime = clamp(v.currentTime + (c.d || 0)); break;
+      case 'seekFrac': if (v.duration) v.currentTime = clamp(c.f * v.duration); break;
+      case 'loop': v.loop = !!c.on; break;
+      case 'volume': videoPrefs = { ...videoPrefs, volume: c.v }; applyVideoPrefs(); break;
+      case 'mute': videoPrefs = { ...videoPrefs, muted: !!c.on }; applyVideoPrefs(); break;
+      // Keeps extra screens in step with the first one.
+      case 'sync':
+        if (!primary) {
+          if (Math.abs(v.currentTime - c.t) > 0.25) v.currentTime = c.t;
+          if (c.paused && !v.paused) v.pause();
+          if (!c.paused && v.paused && !v.ended) v.play();
+        }
+        break;
+    }
+    sendStatus();
+  });
+
+  function sendStatus(ended = false) {
+    const v = mediaVideo;
+    if (!primary || !v || !v.isConnected) return;
+    invoke('media_status', {
+      status: { time: v.currentTime, duration: v.duration || 0, paused: v.paused, loop: v.loop, ended: ended || v.ended, volume: v.volume, muted: !!videoPrefs.muted },
+    });
+  }
+  setInterval(() => sendStatus(), 250);
 
   window.addEventListener('resize', () => {
     textWrap.lastChild?.firstChild?._fit?.();

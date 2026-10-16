@@ -393,3 +393,112 @@ mark { background: #ffe18a; color: #2a1d13; border-radius: 3px; padding: 0 1px; 
 .schedule-panel .svc-title { flex: 1; }
 .schedule-panel .svc-title small { max-width: none; }
 .schedule-panel .panel-head .icon-btn { width: 32px; height: 32px; flex: none; }
+
+/* =====================================================================
+   Minimal pass (v1.2): one quiet surface, hairline dividers, sentence case.
+   The slides are the brightest thing on screen; GO LIVE is the one bold element.
+   ===================================================================== */
+:root, [data-theme] { --shadow: none; }
+[data-theme="sand"], :root { --bg: #f7f3ee; --panel: #fbf8f4; --panel-2: #f2ece4; --rail: #f7f3ee; --rail-active: #ebe1d4; --line: #e7ddd0; --line-strong: #d8cab8; }
+[data-theme="forest"] { --rail: var(--bg); }
+[data-theme="plum"] { --rail: var(--bg); }
+body { grid-template-rows: 56px minmax(0, 1fr) minmax(250px, 40vh); font-size: 13.5px; }
+
+/* top bar */
+.topbar { border-bottom: 1px solid var(--line); background: var(--panel); padding: 0 12px 0 16px; gap: 14px; }
+.brand img { height: 26px; }
+.greeting { padding-left: 14px; margin-left: 4px; border-left-color: var(--line); }
+.greeting b { font-size: 14px; font-weight: 600; }
+.greeting small { font-size: 12px; }
+.display-pill { box-shadow: none; border-width: 1px; padding: 4px 10px 4px 5px; min-width: 0; border-radius: 10px; }
+.display-pill .ic-wrap { width: 28px; height: 28px; border-radius: 8px; }
+.dp-text small { text-transform: none; letter-spacing: 0; font-weight: 500; font-size: 11.5px; }
+.dp-text b { font-size: 13px; font-weight: 600; }
+.output-toggle { height: 38px; border-radius: 10px; padding: 0 14px; font-weight: 600; box-shadow: none; }
+.icon-btn.big { width: 38px; height: 38px; border-radius: 10px; box-shadow: none; border-width: 1px; }
+
+/* panels: flush, divided by hairlines */
+.workspace { gap: 0; padding: 0; }
+.panel { border-radius: 0; border: none; box-shadow: none; background: var(--panel); }
+.workspace > .panel + .panel { border-left: 1px solid var(--line); }
+.panel-head, .modal-head { min-height: 44px; padding: 8px 12px; }
+.panel-head .badge { display: none; }
+.panel-head h2 { font-size: 14px; font-weight: 600; }
+.item-title { font-weight: 500; }
+.live-chip { font-size: 12px; font-weight: 600; letter-spacing: 0; padding: 3px 9px 3px 8px; border-radius: 99px; }
+.stage { border-radius: 8px; box-shadow: 0 0 0 1px var(--line); }
+.stage.live { box-shadow: 0 0 0 2px var(--live); }
+.stage-row { padding: 0 12px 10px; }
+.go-live { width: 104px; border-radius: 12px; }
+.live-tools { width: 104px; gap: 6px; }
+.tool { border: none; background: var(--panel-2); font-weight: 600; border-radius: 10px; }
+.tool:hover { background: var(--select); }
+.slides { padding: 0 12px 12px; gap: 8px; }
+.thumb .sl, .tile .sl { box-shadow: 0 0 0 1px var(--line); border-radius: 6px; }
+.thumb .tlabel { font-weight: 500; }
+.thumb .num { font-weight: 600; border-radius: 6px; }
+.schedule li { border-radius: 8px; padding: 7px 8px 7px 6px; }
+.schedule li .kind { width: 26px; height: 26px; border-radius: 7px; }
+.schedule li .txt b { font-weight: 600; }
+
+/* library */
+.library { margin: 0; border-radius: 0; border: none; border-top: 1px solid var(--line); box-shadow: none; grid-template-columns: 160px minmax(0, 1fr); }
+.lib-tabs { background: var(--rail); border-right: 1px solid var(--line); padding: 10px 8px; gap: 2px; }
+.lib-tab { font-size: 14px; font-weight: 500; padding: 8px 10px; border-radius: 8px; }
+.lib-tab.active { font-weight: 600; }
+.lib-toolbar { padding: 10px 12px; border-bottom-color: var(--line); gap: 8px; }
+.search { height: 36px; border-radius: 9px; border-width: 1px; min-width: 260px; }
+.btn { height: 36px; border-radius: 9px; border-width: 1px; font-weight: 600; padding: 0 13px; }
+.btn.primary { box-shadow: none; }
+.select { height: 36px; border-radius: 9px; border-width: 1px; font-weight: 600; }
+.chip { height: 32px; border-width: 1px; font-weight: 500; }
+.song-list { gap: 4px; padding: 8px 12px; }
+.song { border-color: transparent; background: transparent; border-radius: 9px; padding: 8px 10px; }
+.song:hover { background: var(--panel-2); border-color: transparent; }
+.song.sel { background: var(--select); border-color: transparent; }
+.song .note { width: 30px; height: 30px; border-radius: 8px; }
+.song .txt b { font-weight: 600; }
+.books .testament { text-transform: none; letter-spacing: 0; font-size: 12px; font-weight: 600; color: var(--muted); }
+.verse { font-size: 14.5px; }
+.verses-head b { font-weight: 700; font-size: 16px; }
+.media-grid { gap: 12px; }
+.tile .tname { font-weight: 500; }
+.tile .tags i.warn { background: #c81e3a; color: #fff; }
+.tile .tags i.quiet { background: rgba(20, 12, 6, .65); color: #fff; }
+.add-tile { border-width: 1px; border-radius: 6px; font-weight: 600; }
+
+/* dialogs */
+.modal { border-radius: 16px; }
+.modal-head .badge { display: none; }
+.modal-head h2 { font-size: 16px; font-weight: 600; }
+.settings h3 { text-transform: none; letter-spacing: 0; font-size: 14px; font-weight: 600; color: var(--heading); margin: 18px 0 8px; }
+.field > span { font-weight: 600; }
+.choice, .ew-row, .svc-row { border-width: 1px; border-radius: 12px; }
+.screen { border-width: 2px; }
+
+/* video controls */
+.vbar { padding: 0 12px 8px; display: flex; flex-direction: column; gap: 4px; }
+.vrow { display: flex; align-items: center; gap: 4px; }
+.vrow .icon-btn { width: 32px; height: 32px; }
+.vrow .icon-btn .ic { width: 16px; height: 16px; }
+.vplay { background: var(--ink); color: var(--panel) !important; border-radius: 50%; }
+.vplay:hover { background: var(--ink) !important; opacity: .85; }
+.vtime { font: 600 12px/1 "Segoe UI Variable Text", "Segoe UI", sans-serif; color: var(--muted); min-width: 38px; text-align: center; font-variant-numeric: tabular-nums; }
+.vseek, .vvol { -webkit-appearance: none; appearance: none; height: 4px; border-radius: 99px; background: linear-gradient(var(--accent), var(--accent)) 0 / var(--p, 0%) 100% no-repeat, var(--line-strong); cursor: pointer; }
+.vseek { flex: 1; }
+.vvol { width: 90px; background: var(--line-strong); }
+.vseek::-webkit-slider-thumb, .vvol::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: var(--panel); border: 2px solid var(--accent); }
+.vend { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); font-weight: 500; }
+.vrow .pill-btn { height: 30px; font-weight: 600; }
+
+/* progress */
+.busy-body { display: flex; flex-direction: column; gap: 10px; min-width: 260px; }
+.busy-card { font-weight: 600; }
+.busy-progress { height: 6px; border-radius: 99px; background: var(--panel-2); overflow: hidden; }
+.busy-progress i { display: block; height: 100%; width: 0; background: var(--accent); border-radius: inherit; transition: width .15s linear; }
+.schedule li .kind { background: var(--panel-2) !important; }
+.kind.song { color: #3e6fd8; }
+.kind.scripture { color: #0e8a7e; }
+.kind.media { color: #8a4fd6; }
+.kind.slides { color: var(--accent-2); }
+.schedule li.sel .kind, .schedule li.is-live .kind { background: var(--panel) !important; }
