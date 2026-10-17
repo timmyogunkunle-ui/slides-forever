@@ -83,6 +83,7 @@
         <button class="layer" id="btnClearText" title="Show or hide the words (C)"><span data-icon="text"></span>Text</button>
         <button class="layer" id="btnLayerMedia" title="Show or hide the video or picture"><span data-icon="film"></span>Media</button>
         <button class="layer" id="btnTicker" title="Show or hide the scrolling message (T)"><span data-icon="ticker"></span>Message</button>
+        <button class="layer" id="btnLayerFx" title="Show or hide all filters (F)"><span data-icon="sparkle"></span>Filters</button>
         <span class="layer-sep"></span>
         <button class="layer" id="btnBlack" title="Black screen (B)"><span data-icon="black"></span>Black</button>
         <button class="layer" id="btnStandby" title="Standby screen (S)"><span data-icon="pause"></span>Standby</button>
@@ -135,6 +136,7 @@
       <button class="lib-tab" data-tab="bible"><span data-icon="book"></span>Scripture</button>
       <button class="lib-tab" data-tab="media"><span data-icon="image"></span>Media</button>
       <button class="lib-tab" data-tab="slides"><span data-icon="layers"></span>Slide groups</button>
+      <button class="lib-tab" data-tab="filters"><span data-icon="sparkle"></span>Filters</button>
     </nav>
 
     <!-- Songs -->
@@ -206,7 +208,34 @@
       </div>
       <div class="media-grid" id="groupGrid"></div>
     </div>
+
+    <!-- Filters: layers on top of whatever is live -->
+    <div class="lib-page" data-page="filters">
+      <div class="lib-toolbar">
+        <span class="muted small">Click a filter to turn it on or off on the live screen. They stay on across slides, and you can stack several.</span>
+        <div class="grow"></div>
+        <button class="btn" id="btnFiltersOff"><span data-icon="x"></span>Turn all off</button>
+      </div>
+      <div class="filter-body" id="filterGrid"></div>
+    </div>
   </section>
+
+  <!-- Filter options -->
+  <dialog class="modal narrow" id="filterDialog">
+    <form class="modal-inner" id="filterForm">
+      <div class="modal-head">
+        <h2 id="filterDlgTitle">Filter</h2>
+        <div class="grow"></div>
+        <button type="button" class="icon-btn" data-close title="Close"><span data-icon="x"></span></button>
+      </div>
+      <div class="modal-body" id="filterFields"></div>
+      <div class="modal-foot">
+        <button type="button" class="btn" data-close>Cancel</button>
+        <div class="grow"></div>
+        <button type="submit" class="btn primary"><span data-icon="check"></span>Save and show</button>
+      </div>
+    </form>
+  </dialog>
 
   <!-- Song editor -->
   <dialog class="modal wide" id="songEditor">

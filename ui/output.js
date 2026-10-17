@@ -51,6 +51,7 @@
     bgWrap.classList.toggle('cleared', !!p.clearBg && !p.standby);
     mediaWrap.classList.toggle('cleared', !!p.clearMedia && !p.standby);
     S.renderTicker(tickerHost, p.black ? null : p.ticker);
+    S.renderFilters(stage, p.hideFilters ? null : p.filters);
     if (!slide) return; // keep layers so un-blacking resumes instantly
 
     const isText = slide.kind === 'text';

@@ -139,6 +139,172 @@
     }
   };
 
+  // ======================= Filters =======================
+  // Filters sit on top of whatever is live and stay until turned off. Three kinds:
+  //   colour  – change the look of the background picture/video (never the words)
+  //   effect  – animated or textured layers over everything
+  //   screen  – on-screen items: lower third, banner, logo, clock, countdown
+  S.FILTERS = [
+    { id: 'warm', group: 'Colour', name: 'Warm glow', css: 'sepia(.25) saturate(1.25) hue-rotate(-8deg) brightness(1.03)', tint: 'rgba(255, 140, 40, .45)' },
+    { id: 'cool', group: 'Colour', name: 'Cool blue', css: 'saturate(.75) brightness(.95)', tint: 'rgba(40, 110, 255, .6)' },
+    { id: 'mono', group: 'Colour', name: 'Black and white', css: 'grayscale(1) contrast(1.1)' },
+    { id: 'vintage', group: 'Colour', name: 'Vintage', css: 'sepia(.55) contrast(.92) brightness(1.04) saturate(.9)', tint: 'rgba(150, 100, 40, .35)' },
+    { id: 'dim', group: 'Colour', name: 'Dim background', css: 'brightness(.5)', hint: 'Makes lyrics easier to read on busy backgrounds' },
+    { id: 'soft', group: 'Colour', name: 'Soft focus', css: 'blur(.7cqh) brightness(.9)' },
+    { id: 'snow', group: 'Effects', name: 'Falling snow' },
+    { id: 'rain', group: 'Effects', name: 'Gentle rain' },
+    { id: 'bokeh', group: 'Effects', name: 'Golden bokeh' },
+    { id: 'rays', group: 'Effects', name: 'Light rays' },
+    { id: 'vignette', group: 'Effects', name: 'Vignette' },
+    { id: 'grain', group: 'Effects', name: 'Film grain' },
+    { id: 'lowerThird', group: 'On screen', name: 'Lower third', options: [['name', 'Name', 'Pastor John Smith'], ['role', 'Title or role', 'Senior Pastor']] },
+    { id: 'banner', group: 'On screen', name: 'Banner', options: [['text', 'Text', 'Welcome to our service']] },
+    { id: 'logo', group: 'On screen', name: 'Logo', options: [['corner', 'Corner (top-left, top-right, bottom-left, bottom-right)', 'top-right']] },
+    { id: 'clock', group: 'On screen', name: 'Clock' },
+    { id: 'countdown', group: 'On screen', name: 'Countdown', options: [['minutes', 'Minutes', '5'], ['label', 'Label', 'Service starts in']] },
+  ];
+  S.filterById = (id) => S.FILTERS.find((f) => f.id === id);
+
+  /** CSS filter string for the background/media layers from the active colour filters. */
+  S.filterCss = (active) => (active || []).map((id) => S.filterById(id)?.css).filter(Boolean).join(' ') || '';
+
+  const opt = (options, id, key) => {
+    const f = S.filterById(id);
+    const v = options?.[id]?.[key];
+    return v != null && v !== '' ? v : (f?.options?.find((o) => o[0] === key)?.[2] ?? '');
+  };
+
+  /**
+   * Draw the active filters into `host` (a .sl stage). `f` = { active: [ids], options, endsAt }.
+   * Re-renders only when the filter set changes, so animations keep running between slides.
+   */
+  S.renderFilters = function (host, f, { still = false } = {}) {
+    const key = f && f.active && f.active.length ? JSON.stringify([f.active, f.options, f.endsAt]) : '';
+    if (host._fx === key) return;
+    host._fx = key;
+    host.querySelectorAll(':scope > .sl-fx, :scope > .sl-fx-under').forEach((x) => { x._stop?.(); x.remove(); });
+    // colour filters tint the background and media, not the text
+    const css = key ? S.filterCss(f.active) : '';
+    host.querySelectorAll(':scope > .sl-bg, :scope > .sl-media, :scope > #bgWrap, :scope > #mediaWrap').forEach((el) => { el.style.filter = css; });
+    if (!key) return;
+    // Colour tints sit between the picture and the words, so the text keeps its own colour.
+    const tints = f.active.map((id) => S.filterById(id)?.tint).filter(Boolean);
+    if (tints.length) {
+      const under = document.createElement('div');
+      under.className = 'sl-fx-under';
+      for (const t of tints) under.append(el('div', 'fx-tint', { background: t }));
+      host.insertBefore(under, host.querySelector(':scope > .sl-text, :scope > #textWrap'));
+    }
+    const fx = document.createElement('div');
+    fx.className = 'sl-fx';
+    for (const id of f.active) {
+      const def = S.filterById(id);
+      if (!def) continue;
+      switch (id) {
+        case 'vignette': fx.append(el('div', 'fx-vignette')); break;
+        case 'rays': fx.append(el('div', 'fx-rays')); break;
+        case 'grain': fx.append(el('div', 'fx-grain')); break;
+        case 'snow': case 'rain': case 'bokeh': fx.append(particles(id, still)); break;
+        case 'lowerThird': {
+          const b = el('div', 'fx-lower');
+          b.innerHTML = `<b>${S.esc(opt(f.options, id, 'name'))}</b><span>${S.esc(opt(f.options, id, 'role'))}</span>`;
+          fx.append(b);
+          break;
+        }
+        case 'banner': { const b = el('div', 'fx-banner'); b.textContent = opt(f.options, id, 'text'); fx.append(b); break; }
+        case 'logo': {
+          const b = el('div', 'fx-logo fx-' + (opt(f.options, id, 'corner') || 'top-right').replace(/[^a-z-]/g, ''));
+          b.innerHTML = '<img src="logo.png" alt="">';
+          fx.append(b);
+          break;
+        }
+        case 'clock': case 'countdown': fx.append(ticking(id, f, still)); break;
+      }
+    }
+    host.append(fx);
+    fx._stop = () => fx.querySelectorAll('*').forEach((x) => x._stop?.());
+  };
+
+  function el(tag, cls, style) {
+    const d = document.createElement(tag);
+    d.className = cls;
+    if (style) Object.assign(d.style, style);
+    return d;
+  }
+
+  function ticking(id, f, still) {
+    const d = el('div', id === 'clock' ? 'fx-clock' : 'fx-countdown');
+    const label = id === 'countdown' ? S.esc(opt(f.options, id, 'label')) : '';
+    const draw = () => {
+      if (id === 'clock') {
+        d.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      } else {
+        const ends = f.endsAt || Date.now() + (+opt(f.options, id, 'minutes') || 5) * 60000;
+        const left = Math.max(0, Math.round((ends - Date.now()) / 1000));
+        const mm = Math.floor(left / 60), ss = String(left % 60).padStart(2, '0');
+        d.innerHTML = `${label ? `<small>${label}</small>` : ''}<b>${mm}:${ss}</b>`;
+      }
+    };
+    draw();
+    if (!still) {
+      const t = setInterval(() => (d.isConnected ? draw() : clearInterval(t)), 500);
+      d._stop = () => clearInterval(t);
+    }
+    return d;
+  }
+
+  /** Snow, rain and bokeh drawn on a canvas sized to the stage. */
+  function particles(kind, still) {
+    const c = el('canvas', 'fx-canvas');
+    const ctx = c.getContext('2d');
+    let parts = [], raf = 0, W = 0, H = 0;
+    const rnd = (a, b) => a + Math.random() * (b - a);
+    const make = () => {
+      const r = c.getBoundingClientRect();
+      W = c.width = Math.max(1, Math.round(r.width * Math.min(devicePixelRatio, 1.5)));
+      H = c.height = Math.max(1, Math.round(r.height * Math.min(devicePixelRatio, 1.5)));
+      const n = kind === 'snow' ? 140 : kind === 'rain' ? 180 : 28;
+      parts = Array.from({ length: n }, () => ({
+        x: rnd(0, W), y: rnd(0, H),
+        r: kind === 'snow' ? rnd(.003, .009) * H : kind === 'bokeh' ? rnd(.03, .09) * H : rnd(.012, .03) * H,
+        v: kind === 'snow' ? rnd(.0006, .0018) * H : kind === 'rain' ? rnd(.012, .02) * H : rnd(.0002, .0006) * H,
+        d: rnd(-.5, .5), a: rnd(.25, .8), p: rnd(0, Math.PI * 2),
+      }));
+    };
+    const frame = (tm) => {
+      if (!c.isConnected) return;
+      if (!W) make();
+      ctx.clearRect(0, 0, W, H);
+      for (const q of parts) {
+        if (kind === 'snow') {
+          q.y += q.v; q.x += Math.sin(tm / 1400 + q.p) * .4 + q.d * .2;
+          ctx.globalAlpha = q.a; ctx.fillStyle = '#fff';
+          ctx.beginPath(); ctx.arc(q.x, q.y, q.r, 0, Math.PI * 2); ctx.fill();
+        } else if (kind === 'rain') {
+          q.y += q.v; q.x += q.v * .12;
+          ctx.globalAlpha = q.a * .5; ctx.strokeStyle = '#cfe0ff'; ctx.lineWidth = Math.max(1, H / 900);
+          ctx.beginPath(); ctx.moveTo(q.x, q.y); ctx.lineTo(q.x - q.r * .12, q.y - q.r); ctx.stroke();
+        } else {
+          q.y -= q.v; q.x += Math.sin(tm / 3000 + q.p) * .3;
+          const g = ctx.createRadialGradient(q.x, q.y, 0, q.x, q.y, q.r);
+          const a = q.a * (.35 + .25 * Math.sin(tm / 1600 + q.p));
+          g.addColorStop(0, `rgba(255, 210, 130, ${a})`); g.addColorStop(1, 'rgba(255, 190, 90, 0)');
+          ctx.globalAlpha = 1; ctx.fillStyle = g;
+          ctx.beginPath(); ctx.arc(q.x, q.y, q.r, 0, Math.PI * 2); ctx.fill();
+        }
+        if (q.y > H + q.r) { q.y = -q.r; q.x = rnd(0, W); }
+        if (q.y < -q.r) { q.y = H + q.r; q.x = rnd(0, W); }
+        if (q.x > W + q.r) q.x = -q.r;
+        if (q.x < -q.r) q.x = W + q.r;
+      }
+      if (!still) raf = requestAnimationFrame(frame);
+    };
+    requestAnimationFrame((t) => { make(); frame(t); if (still) frame(t + 16); });
+    new ResizeObserver(() => { W = 0; }).observe(c);
+    c._stop = () => cancelAnimationFrame(raf);
+    return c;
+  }
+
   /** Default standby / logo screen. */
   S.brandElement = function () {
     const d = document.createElement('div');
@@ -214,6 +380,8 @@
     forward: '<path d="M13 19l9-7-9-7v14z" fill="currentColor"/><path d="M2 19l9-7-9-7v14z" fill="currentColor"/>',
     volume: '<path d="M11 5 6 9H2v6h4l5 4V5z" fill="currentColor"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/>',
     mute: '<path d="M11 5 6 9H2v6h4l5 4V5z" fill="currentColor"/><path d="m22 9-6 6M16 9l6 6"/>',
+    sparkle: '<path d="M12 3l1.9 5.6L19.5 10l-5.6 1.9L12 17.5l-1.9-5.6L4.5 10l5.6-1.4z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/>',
+    gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
     save: '<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/>',
     download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>',
     ticker: '<rect x="2" y="7" width="20" height="10" rx="2"/><path d="M6 12h8M17 10l2 2-2 2"/>',

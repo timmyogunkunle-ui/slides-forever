@@ -12,6 +12,7 @@ Fast, friendly worship presentation software: a modern alternative to EasyWorshi
 | **Bible** | KJV and BSB built in (offline). Type `John 3:16`, `jn 3 16-18`, `1 cor 13:4-7`, `ps 23` or plain words and press **Enter** to go straight to live. Import more Bibles in Settings. |
 | **Media** | Images, GIFs and videos (MP4, WebM, MOV) as items or backgrounds. Added files are copied into your library folder (with a progress bar) so they keep working and travel with it. Videos that Windows can’t play are flagged straight away. |
 | **Studio look** | Dark walnut operator console (light themes still in Settings): one search box for everything (Ctrl+K), a Live column with a Next preview and clock, and per-layer controls: Clear all, Background, Text, Media, Message, Black, Standby. Song sections are colour-coded (verse blue, chorus rose, bridge teal, pre-chorus violet). |
+| **Filters** | Layers on top of whatever is live, stacked as you like and kept across slides. Colour (Warm glow, Cool blue, Black and white, Vintage, Dim background, Soft focus: they change the picture, never the words), Effects (Falling snow, Gentle rain, Golden bokeh, Light rays, Vignette, Film grain) and On screen (Lower third, Banner, Logo, Clock, Countdown). F hides them all; Clear all turns them off. |
 | **PC folders** | Media shows your Pictures and Videos folders (and any folder you add) straight from disk, newest first, so you can put a photo on screen without importing it. |
 | **Video control** | Scrub a video in Preview and it goes live from that point. Live controls: play/pause (K), back/forward 10 s (J / L), seek, volume, mute, loop, and what happens when it ends (hold, black, standby, or next item in the service). The live monitor and every extra screen stay in step with the projector. |
 | **Slide groups** | Drop a **PDF**, a **PowerPoint** (`.ppt/.pptx/.pps/.ppsx`) or several **pictures** into the window and they become a slide group. Advance by hand or **auto-play** every N seconds, with optional looping. PowerPoint files are converted using the copy of PowerPoint installed on the PC; PDFs use Windows' built-in PDF engine. |
@@ -35,6 +36,7 @@ Fast, friendly worship presentation software: a modern alternative to EasyWorshi
 | C | Clear text (keep background) |
 | S | Standby screen |
 | T | Scrolling message on/off |
+| F | Hide or show filters |
 | Esc | Clear everything (on the output window: close it) |
 | Ctrl+N | New song |
 | Ctrl+S | Save the service |

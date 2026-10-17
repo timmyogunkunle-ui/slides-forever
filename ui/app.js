@@ -21,6 +21,7 @@
     video: { volume: 1, muted: false },
     videoEnd: 'hold',
     copyMedia: true,
+    filters: { active: [], options: {}, endsAt: null },
     seeded: false,
     theme: 'studio',
     uiVersion: 2,
@@ -239,6 +240,7 @@
     host._key = key;
     S.renderSlide(host, slide, { style: st.settings.style, muted: true, ...opts });
     host._tk = null;
+    host._fx = null;
   }
 
   /** Each song section gets its own colour so the shape of a song reads at a glance. */
@@ -312,6 +314,8 @@
       clear: st.clear,
       clearBg: st.hideBg,
       clearMedia: st.hideMedia,
+      filters: st.settings.filters,
+      hideFilters: st.hideFilters,
       standby: showingStandby() ? standbySlide() : null,
       style: st.settings.style,
       fade: st.settings.fade,
@@ -337,6 +341,9 @@
     const standbyOn = showingStandby();
     renderStage(stage, slide, { hideText: st.clear && !standbyOn, hideBg: st.hideBg && !standbyOn, hideMedia: st.hideMedia && !standbyOn });
     S.renderTicker(stage, st.black ? null : st.settings.ticker);
+    S.renderFilters(stage, st.black || st.hideFilters ? null : st.settings.filters);
+    $('#btnLayerFx').classList.toggle('off', !!st.hideFilters);
+    $('#btnLayerFx').classList.toggle('lit', !st.hideFilters && !!st.settings.filters.active.length);
     renderThumbs($('#liveSlides'), L, 'live');
     renderNext();
     // Layer buttons: struck through when that layer is hidden, filled when a mode is on.
@@ -460,7 +467,8 @@
   function clearAll() {
     stopAuto();
     st.live = null;
-    st.black = st.clear = st.standby = st.hideBg = st.hideMedia = false;
+    st.black = st.clear = st.standby = st.hideBg = st.hideMedia = st.hideFilters = false;
+    if (st.settings.filters.active.length) { st.settings.filters.active = []; save('settings'); renderFilterTab(); }
     if (st.settings.ticker.on) { st.settings.ticker.on = false; save('settings'); }
     pushLive();
   }
@@ -875,6 +883,7 @@
     $$('.lib-tab').forEach((x) => x.classList.toggle('active', x.dataset.tab === name));
     $$('.lib-page').forEach((x) => x.classList.toggle('active', x.dataset.page === name));
     const input = { songs: '#songSearch', bible: '#bibleSearch', media: '#mediaSearch', slides: '#groupSearch' }[name];
+    if (name === 'filters') renderFilterTab();
     setTimeout(() => $(input)?.focus(), 0);
   }
 
@@ -1841,6 +1850,7 @@
     else if (k === 'c' || k === 'C') toggleMode('clear');
     else if (k === 's' || k === 'S') toggleMode('standby');
     else if (k === 't' || k === 'T') toggleTicker();
+    else if (!e.ctrlKey && (k === 'f' || k === 'F')) toggleLayer('hideFilters');
     else if (k === 'Escape') clearAll();
     else if (k === 'Home') st.live && setLiveIndex(0);
     else if (k === 'End') st.live && setLiveIndex(st.live.slides.length - 1);
@@ -1850,6 +1860,89 @@
     else return;
     e.preventDefault();
   });
+
+  // ---------- filters ----------
+  const FILTER_SAMPLE = { kind: 'text', text: 'Amazing grace how sweet the sound\nThat saved a wretch like me', bg: null };
+  const filterOn = (id) => st.settings.filters.active.includes(id);
+
+  function renderFilterTab() {
+    const host = $('#filterGrid');
+    const groups = [...new Set(S.FILTERS.map((f) => f.group))];
+    host.innerHTML = groups.map((g) => `<div class="filter-group">${esc(g)}</div><div class="filter-grid" data-group="${esc(g)}"></div>`).join('');
+    for (const f of S.FILTERS) {
+      const card = document.createElement('div');
+      card.className = 'fcard' + (filterOn(f.id) ? ' on' : '');
+      card.dataset.id = f.id;
+      card.setAttribute('role', 'button');
+      card.tabIndex = 0;
+      const sl = document.createElement('div');
+      card.append(sl);
+      card.insertAdjacentHTML('beforeend', `${f.options ? `<button class="icon-btn fset" data-set="${f.id}" title="Change what it shows">${S.icon('gear')}</button>` : ''}
+        <span class="fname"><span>${esc(f.name)}</span>${filterOn(f.id) ? '<i>On</i>' : ''}</span>${f.hint ? `<small>${esc(f.hint)}</small>` : ''}`);
+      host.querySelector(`[data-group="${f.group}"]`).append(card);
+      S.renderSlide(sl, FILTER_SAMPLE, { thumb: true, style: st.settings.style });
+      S.renderFilters(sl, { active: [f.id], options: st.settings.filters.options });
+    }
+  }
+
+  function setFilters(active) {
+    st.settings.filters.active = active;
+    save('settings');
+    renderFilterTab();
+    pushLive();
+  }
+
+  function toggleFilter(id) {
+    const f = S.filterById(id);
+    if (filterOn(id)) return setFilters(st.settings.filters.active.filter((x) => x !== id));
+    // Text filters ask for their words the first time.
+    if (f.options && !st.settings.filters.options[id] && id !== 'logo') return openFilterSettings(id);
+    if (id === 'countdown') startCountdown();
+    st.hideFilters = false;
+    setFilters([...st.settings.filters.active, id]);
+  }
+
+  function startCountdown() {
+    const mins = +(st.settings.filters.options.countdown?.minutes || 5);
+    st.settings.filters.endsAt = Date.now() + mins * 60000;
+  }
+
+  let editingFilter = null;
+  function openFilterSettings(id) {
+    const f = S.filterById(id);
+    editingFilter = id;
+    const vals = st.settings.filters.options[id] || {};
+    $('#filterDlgTitle').textContent = f.name;
+    $('#filterFields').innerHTML = f.options.map(([key, label, example]) =>
+      `<label class="field"><span>${esc(label)}</span><input name="${key}" value="${esc(vals[key] ?? example)}" placeholder="${esc(example)}" /></label>`).join('');
+    $('#filterDialog').showModal();
+    setTimeout(() => $('#filterFields input')?.select(), 30);
+  }
+  $('#filterForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const id = editingFilter;
+    const vals = {};
+    $$('#filterFields input').forEach((i) => { vals[i.name] = i.value.trim(); });
+    st.settings.filters.options = { ...st.settings.filters.options, [id]: vals };
+    if (id === 'countdown') startCountdown();
+    $('#filterDialog').close();
+    st.hideFilters = false;
+    setFilters(filterOn(id) ? [...st.settings.filters.active] : [...st.settings.filters.active, id]);
+    toast(`${S.filterById(id).name} is on`);
+  });
+
+  $('#filterGrid').addEventListener('click', (e) => {
+    const set = e.target.closest('[data-set]');
+    if (set) return openFilterSettings(set.dataset.set);
+    const card = e.target.closest('.fcard');
+    if (card) toggleFilter(card.dataset.id);
+  });
+  $('#filterGrid').addEventListener('keydown', (e) => {
+    const card = e.target.closest('.fcard');
+    if (card && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); e.stopPropagation(); toggleFilter(card.dataset.id); }
+  });
+  $('#btnFiltersOff').onclick = () => setFilters([]);
+  $('#btnLayerFx').onclick = () => toggleLayer('hideFilters');
 
   // ---------- quick search (Ctrl+K) ----------
   // One box for everything: songs, verses, media, slide groups, saved services and common actions.
@@ -2339,6 +2432,7 @@
         standby: { ...d.standby, ...(settings.standby || {}) },
         ticker: { ...d.ticker, ...(settings.ticker || {}) },
         video: { ...d.video, ...(settings.video || {}) },
+        filters: { ...d.filters, ...(settings.filters || {}) },
       };
       // v1.3 introduced the walnut studio look: switch everyone over once (they can change back in Settings).
       if (!settings.uiVersion) { st.settings.theme = 'studio'; st.settings.uiVersion = 2; save('settings'); }
