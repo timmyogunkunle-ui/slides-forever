@@ -22,7 +22,8 @@
     videoEnd: 'hold',
     copyMedia: true,
     seeded: false,
-    theme: 'sand',
+    theme: 'studio',
+    uiVersion: 2,
     transition: 'fade',
     standby: { mediaId: null, slide: null, text: '' },
     standbyIdle: true,
@@ -39,6 +40,7 @@
     auto: { on: false, timer: null, next: 0 },
     outputOn: false, outputs: [], displays: [], pending: new Set(),
     selSong: null, selMedia: null, schedSel: null, mediaKind: 'all',
+    mediaSrc: 'library', folderCache: {}, selFile: null,
     ver: 0,
   };
 
@@ -177,6 +179,7 @@
       if (!m) return [];
       return [{ kind: 'media', media: { type: m.kind, path: m.path, loop: m.loop !== false }, label: m.name }];
     }
+    if (item.type === 'file') return [{ kind: 'media', media: { type: item.kind, path: item.path, loop: item.kind !== 'video' }, label: item.name }];
     if (item.type === 'group') {
       const g = groupById(item.id);
       if (!g) return [];
@@ -191,16 +194,18 @@
     if (item.type === 'scripture') return `${item.title} (${item.bibleName})`;
     if (item.type === 'media') return mediaById(item.id)?.name || '(missing media)';
     if (item.type === 'group') return groupById(item.id)?.name || '(deleted slide group)';
+    if (item.type === 'file') return item.name;
     return '';
   }
   function itemSub(item) {
     if (item.type === 'song') { const s = songById(item.id); return s ? `${songSections(s.lyrics).length} slides` : ''; }
     if (item.type === 'scripture') return `${item.verses.length} verse${item.verses.length > 1 ? 's' : ''}`;
     if (item.type === 'media') { const m = mediaById(item.id); return m ? { image: 'Image', video: 'Video', gif: 'GIF' }[m.kind] : ''; }
+    if (item.type === 'file') return { image: 'Picture from PC', video: 'Video from PC', gif: 'GIF from PC' }[item.kind] || '';
     if (item.type === 'group') { const g = groupById(item.id); return g ? `${g.pages.length} slides${g.interval ? ` · auto ${g.interval}s` : ''}` : ''; }
     return '';
   }
-  const kindIcon = (item) => ({ song: 'music', scripture: 'book', media: 'image', group: 'slides' })[item.type];
+  const kindIcon = (item) => (item.type === 'file' ? (item.kind === 'video' ? 'film' : 'image') : ({ song: 'music', scripture: 'book', media: 'image', group: 'slides' })[item.type]);
   const kindClass = (item) => (item.type === 'group' ? 'slides' : item.type);
 
   /** What the Standby button (and an idle output) shows. */
@@ -229,16 +234,31 @@
   }
 
   function renderStage(host, slide, opts = {}) {
-    const key = JSON.stringify([slide, opts.hideText || false, st.ver]);
+    const key = JSON.stringify([slide, !!opts.hideText, !!opts.hideBg, !!opts.hideMedia, st.ver]);
     if (host._key === key) return;
     host._key = key;
     S.renderSlide(host, slide, { style: st.settings.style, muted: true, ...opts });
     host._tk = null;
   }
 
+  /** Each song section gets its own colour so the shape of a song reads at a glance. */
+  const SECTION_COLORS = [
+    [/^pre[- ]?chorus/i, '#a77bf0'],
+    [/^(chorus|refrain|c\d*$)/i, '#e06c9f'],
+    [/^(verse|v\d+$)/i, '#5e8ef0'],
+    [/^(bridge|b\d*$)/i, '#3fb6a8'],
+    [/^(tag|ending|outro|intro|coda|vamp|interlude|instrumental|hook)/i, '#8c9aa8'],
+  ];
+  function sectionColor(s) {
+    if (s.caption) return '#c9a26b'; // scripture
+    const label = (s.label || '').trim();
+    for (const [re, c] of SECTION_COLORS) if (re.test(label)) return c;
+    return '';
+  }
+
   function renderThumbs(host, p, which) {
     if (!p) {
-      host.innerHTML = `<div class="slides-empty">${which === 'live' ? 'Nothing live yet — pick something and press <b>GO LIVE</b>.' : 'Click a song, verse or media item to preview it here.'}</div>`;
+      host.innerHTML = `<div class="slides-empty">${which === 'live' ? 'Nothing live. Pick something and press <b>Go live</b>.' : 'Click a song, verse or media item to preview it here.'}</div>`;
       host._key = null;
       return;
     }
@@ -250,7 +270,8 @@
         b.dataset.i = i;
         const sl = document.createElement('div');
         b.append(sl);
-        b.insertAdjacentHTML('beforeend', `<span class="num">${i + 1}</span><span class="tlabel">${esc(s.label || (s.text || '').split('\n')[0] || '')}</span>`);
+        b.style.setProperty('--sec', sectionColor(s));
+        b.insertAdjacentHTML('beforeend', `<span class="num">${i + 1}</span><span class="tlabel"><i></i>${esc(s.label || (s.text || '').split('\n')[0] || '')}</span>`);
         host.append(b);
         S.renderSlide(sl, s, { thumb: true, style: st.settings.style });
       });
@@ -289,6 +310,8 @@
       slide: L ? L.slides[L.index] || null : null,
       black: st.black,
       clear: st.clear,
+      clearBg: st.hideBg,
+      clearMedia: st.hideMedia,
       standby: showingStandby() ? standbySlide() : null,
       style: st.settings.style,
       fade: st.settings.fade,
@@ -311,11 +334,16 @@
     if (showingStandby()) slide = standbySlide();
     if (st.black) slide = null;
     const stage = $('#liveStage');
-    renderStage(stage, slide, { hideText: st.clear && !showingStandby() });
+    const standbyOn = showingStandby();
+    renderStage(stage, slide, { hideText: st.clear && !standbyOn, hideBg: st.hideBg && !standbyOn, hideMedia: st.hideMedia && !standbyOn });
     S.renderTicker(stage, st.black ? null : st.settings.ticker);
     renderThumbs($('#liveSlides'), L, 'live');
+    renderNext();
+    // Layer buttons: struck through when that layer is hidden, filled when a mode is on.
+    $('#btnClearText').classList.toggle('off', st.clear);
+    $('#btnLayerBg').classList.toggle('off', !!st.hideBg);
+    $('#btnLayerMedia').classList.toggle('off', !!st.hideMedia);
     $('#btnBlack').classList.toggle('on', st.black);
-    $('#btnClearText').classList.toggle('on', st.clear);
     $('#btnStandby').classList.toggle('on', st.standby);
     const cur = L && L.slides[L.index];
     const isVideo = !!cur && cur.kind === 'media' && cur.media.type === 'video' && !st.black && !st.standby;
@@ -336,6 +364,24 @@
     $('#btnTicker').classList.toggle('on', !!st.settings.ticker.on);
     $('#liveTransition').value = st.settings.transition;
     $$('#schedule li').forEach((li) => li.classList.toggle('is-live', !!L && li.dataset.uid === L.item.uid));
+  }
+
+  /** The slide that will come next: the next slide of what's live, else the first slide of the next service item. */
+  function upcoming() {
+    const L = st.live;
+    if (L && L.index < L.slides.length - 1) return { slide: L.slides[L.index + 1], label: L.slides[L.index + 1].label || `Slide ${L.index + 2}` };
+    const i = L ? st.schedule.findIndex((x) => x.uid === L.item.uid) : -1;
+    const nextItem = i >= 0 ? st.schedule[i + 1] : null;
+    if (nextItem) {
+      const s = slidesFor(nextItem)[0];
+      if (s) return { slide: s, label: itemTitle(nextItem) };
+    }
+    return null;
+  }
+  function renderNext() {
+    const n = upcoming();
+    $('#nextLabel').textContent = n ? n.label : '';
+    renderStage($('#nextStage'), n ? n.slide : null, { thumb: true });
   }
 
   // ---- slide group auto-play ----
@@ -410,9 +456,17 @@
     pushLive();
   }
 
+  /** Clear every layer: nothing live, all layers visible again, scrolling message off. */
   function clearAll() {
     stopAuto();
-    st.live = null; st.black = st.clear = st.standby = false;
+    st.live = null;
+    st.black = st.clear = st.standby = st.hideBg = st.hideMedia = false;
+    if (st.settings.ticker.on) { st.settings.ticker.on = false; save('settings'); }
+    pushLive();
+  }
+
+  function toggleLayer(key) {
+    st[key] = !st[key];
     pushLive();
   }
 
@@ -1227,7 +1281,38 @@
   }
   $('#btnAddMedia').onclick = addMedia;
 
+  // ---------- media: "My media" plus folders on this PC ----------
+  const kindIconName = (k) => (k === 'video' ? 'film' : k === 'gif' ? 'gif' : 'image');
+
+  /** Thumbnails load only when scrolled into view, so a folder of 2,000 photos opens instantly. */
+  const thumbObserver = new IntersectionObserver((entries) => {
+    for (const en of entries) {
+      if (!en.isIntersecting) continue;
+      const sl = en.target;
+      thumbObserver.unobserve(sl);
+      S.renderSlide(sl, { kind: 'media', media: { type: sl.dataset.kind, path: sl.dataset.path } }, { thumb: true });
+    }
+  }, { rootMargin: '300px' });
+
+  function renderMediaSide() {
+    const folders = st.settings.mediaFolders || [];
+    $('#libCount').textContent = st.media.length || '';
+    $('.media-side .side-item[data-src="library"]').classList.toggle('active', st.mediaSrc === 'library');
+    $('#folderList').innerHTML = folders.map((f, i) => `
+      <button class="side-item${st.mediaSrc !== 'library' && st.mediaSrc.root === f.path ? ' active' : ''}" data-folder="${i}" title="${esc(f.path)}">
+        ${S.icon('folder')}<span>${esc(f.name)}</span><span class="icon-btn rm" data-remove="${i}" title="Remove from this list">${S.icon('x')}</span>
+      </button>`).join('');
+  }
+
   function renderMedia() {
+    renderMediaSide();
+    if (st.mediaSrc === 'library') return renderLibraryMedia();
+    return renderFolder();
+  }
+
+  function renderLibraryMedia() {
+    $('#mediaCrumb').textContent = 'My media';
+    $('#btnAddMedia').hidden = false;
     const q = $('#mediaSearch').value.trim().toLowerCase();
     const list = st.media.filter((m) => (st.mediaKind === 'all' || m.kind === st.mediaKind) && (!q || m.name.toLowerCase().includes(q)));
     const grid = $('#mediaGrid');
@@ -1238,26 +1323,147 @@
       t.dataset.id = m.id;
       t.draggable = true;
       const sl = document.createElement('div');
+      sl.className = 'sl';
+      sl.dataset.kind = m.kind;
+      sl.dataset.path = m.path;
       t.append(sl);
       const tags = [];
-      if (st.settings.songBg === m.id) tags.push('<i>Song BG</i>');
-      if (st.settings.scriptureBg === m.id) tags.push('<i>Bible BG</i>');
+      if (st.settings.songBg === m.id) tags.push('<i>Song background</i>');
+      if (st.settings.scriptureBg === m.id) tags.push('<i>Scripture background</i>');
       if (st.settings.standby?.mediaId === m.id) tags.push('<i>Standby</i>');
       if (st.missing.has(m.path)) tags.push('<i class="warn">File missing</i>');
       if (m.unplayable) tags.push('<i class="warn">Won’t play</i>');
-      if (m.kind === 'video' && m.duration) tags.push(`<i class="quiet">${fmtTime(m.duration)}</i>`);
+      if (m.kind === 'video' && m.duration) tags.push(`<i>${fmtTime(m.duration)}</i>`);
       t.insertAdjacentHTML('beforeend', `<span class="tags">${tags.join('')}</span>
         <button class="icon-btn more" title="More">${S.icon('sliders')}</button>
-        <span class="tname">${S.icon(m.kind === 'video' ? 'film' : m.kind === 'gif' ? 'gif' : 'image')}<span>${esc(m.name)}</span></span>`);
-      S.renderSlide(sl, { kind: 'media', media: { type: m.kind, path: m.path } }, { thumb: true });
+        <span class="tname">${S.icon(kindIconName(m.kind))}<span>${esc(m.name)}</span></span>`);
       grid.append(t);
+      thumbObserver.observe(sl);
     }
+    if (!list.length && st.media.length) grid.innerHTML = `<div class="empty-state">${S.icon('search')}<b>Nothing matches</b></div>`;
     const add = document.createElement('button');
     add.className = 'add-tile';
-    add.innerHTML = `${S.icon('plus')}Add images, videos &amp; GIFs`;
+    add.innerHTML = `${S.icon('plus')}Add pictures, videos or GIFs<small>Or pick a folder on the left to use files straight from your PC</small>`;
     add.onclick = addMedia;
     grid.append(add);
   }
+
+  async function renderFolder() {
+    const src = st.mediaSrc;
+    const grid = $('#mediaGrid');
+    $('#btnAddMedia').hidden = true;
+    // breadcrumb: the linked folder, then each sub-folder you have opened
+    const rootName = (st.settings.mediaFolders || []).find((f) => f.path === src.root)?.name || 'Folder';
+    const rel = src.path.slice(src.root.length).split(/[\\/]/).filter(Boolean);
+    let acc = src.root;
+    const parts = [`<button data-crumb="${esc(src.root)}">${esc(rootName)}</button>`];
+    for (const r of rel) { acc += '\\' + r; parts.push(`<button data-crumb="${esc(acc)}">${esc(r)}</button>`); }
+    $('#mediaCrumb').innerHTML = parts.join(' / ');
+    let data;
+    try {
+      data = st.folderCache[src.path] || (st.folderCache[src.path] = await invoke('list_folder', { path: src.path }));
+    } catch (e) {
+      grid.innerHTML = `<div class="empty-state">${S.icon('folder')}<b>Can’t open this folder</b><br />${esc(String(e))}</div>`;
+      return;
+    }
+    if (st.mediaSrc !== src) return; // the user moved on while we were reading
+    const q = $('#mediaSearch').value.trim().toLowerCase();
+    const dirs = data.dirs.filter((d) => !q || d.name.toLowerCase().includes(q));
+    const files = data.files.filter((f) => (st.mediaKind === 'all' || f.kind === st.mediaKind) && (!q || f.name.toLowerCase().includes(q)));
+    grid.innerHTML = '';
+    for (const d of dirs) {
+      const t = document.createElement('div');
+      t.className = 'tile folder';
+      t.dataset.dir = d.path;
+      t.innerHTML = `<div class="sl">${S.icon('folder')}</div><span class="tname"><span>${esc(d.name)}</span></span>`;
+      grid.append(t);
+    }
+    for (const f of files) {
+      const t = document.createElement('div');
+      t.className = 'tile' + (st.selFile === f.path ? ' sel' : '');
+      t.dataset.path = f.path;
+      t.dataset.kind = f.kind;
+      t.dataset.name = f.name;
+      t.draggable = true;
+      const sl = document.createElement('div');
+      sl.className = 'sl';
+      sl.dataset.kind = f.kind;
+      sl.dataset.path = f.path;
+      t.append(sl);
+      t.insertAdjacentHTML('beforeend', `<button class="icon-btn more" title="More">${S.icon('sliders')}</button>
+        <span class="tname">${S.icon(kindIconName(f.kind))}<span>${esc(f.name)}</span></span>`);
+      grid.append(t);
+      thumbObserver.observe(sl);
+    }
+    if (!dirs.length && !files.length) {
+      grid.innerHTML = `<div class="empty-state">${S.icon('image')}<b>${q ? 'Nothing matches' : 'No pictures or videos here'}</b>${q ? '' : '<br />Open another folder on the left, or drop files into the window.'}</div>`;
+    }
+  }
+
+  const fileItem = (t) => ({ type: 'file', path: t.dataset.path, kind: t.dataset.kind, name: t.dataset.name });
+
+  function openFolder(root, path = root) {
+    delete st.folderCache[path]; // always show what's in the folder right now
+    st.mediaSrc = { root, path };
+    st.selFile = null;
+    $('#mediaSearch').value = '';
+    renderMedia();
+  }
+
+  /** Link a PC file into "My media" (no copy) so it can be a background or standby screen. */
+  function linkFile(item) {
+    let m = st.media.find((x) => x.path === item.path);
+    if (!m) {
+      m = { id: uid(), name: item.name, path: item.path, kind: item.kind, loop: item.kind !== 'video' };
+      st.media.push(m);
+      save('media');
+    }
+    return m;
+  }
+
+  function fileMenu(x, y, item) {
+    showMenu(x, y, [
+      { icon: 'arrow', label: 'Go live', action: () => { setPreview(item); goLive(0); } },
+      { icon: 'plus', label: 'Add to service', action: () => addToSchedule(item) },
+      { icon: 'layers', label: 'Add to My media', action: () => { linkFile(item); toast(`Added “${item.name}” to My media`); renderMediaSide(); } },
+      '-',
+      { icon: 'music', label: 'Use as default song background', action: () => setSetting('songBg', linkFile(item).id) },
+      { icon: 'book', label: 'Use as default scripture background', action: () => setSetting('scriptureBg', linkFile(item).id) },
+      { icon: 'pause', label: 'Use as standby screen', action: () => setStandbyMedia(linkFile(item).id) },
+      { icon: 'folder', label: 'Show in File Explorer', action: () => invoke('open_folder', { path: st.mediaSrc.path }) },
+    ]);
+  }
+
+  $('.media-side').addEventListener('click', async (e) => {
+    const rm = e.target.closest('[data-remove]');
+    if (rm) {
+      e.stopPropagation();
+      const f = st.settings.mediaFolders[+rm.dataset.remove];
+      st.settings.mediaFolders.splice(+rm.dataset.remove, 1);
+      save('settings');
+      if (st.mediaSrc !== 'library' && st.mediaSrc.root === f.path) st.mediaSrc = 'library';
+      renderMedia();
+      return;
+    }
+    const f = e.target.closest('[data-folder]');
+    if (f) return openFolder(st.settings.mediaFolders[+f.dataset.folder].path);
+    if (e.target.closest('[data-src="library"]')) { st.mediaSrc = 'library'; renderMedia(); }
+  });
+  $('#btnAddFolder').onclick = async () => {
+    const dir = await invoke('pick_folder', { title: 'Choose a folder of pictures or videos' });
+    if (!dir) return;
+    st.settings.mediaFolders = st.settings.mediaFolders || [];
+    if (!st.settings.mediaFolders.some((f) => f.path === dir)) {
+      st.settings.mediaFolders.push({ name: dir.split(/[\\/]/).filter(Boolean).pop() || dir, path: dir });
+      save('settings');
+    }
+    openFolder(dir);
+  };
+  $('#mediaCrumb').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-crumb]');
+    if (b && st.mediaSrc !== 'library') openFolder(st.mediaSrc.root, b.dataset.crumb);
+  });
+
   function selectMedia(id) {
     st.selMedia = id;
     $$('#mediaGrid .tile').forEach((x) => x.classList.toggle('sel', x.dataset.id === id));
@@ -1295,24 +1501,41 @@
     refreshItems();
     renderSettings();
   }
+  function selectFile(t) {
+    st.selFile = t.dataset.path;
+    $$('#mediaGrid .tile').forEach((x) => x.classList.toggle('sel', x === t));
+    setPreview(fileItem(t));
+  }
   $('#mediaGrid').addEventListener('click', (e) => {
     const t = e.target.closest('.tile');
     if (!t) return;
+    const more = e.target.closest('.more');
+    const r = more && more.getBoundingClientRect();
+    if (t.dataset.dir) return; // folders open on double-click
+    if (t.dataset.path && !t.dataset.id) return more ? fileMenu(r.left, r.bottom + 4, fileItem(t)) : selectFile(t);
     const m = mediaById(t.dataset.id);
-    if (e.target.closest('.more')) { const r = e.target.closest('.more').getBoundingClientRect(); mediaMenu(r.left, r.bottom + 4, m); return; }
+    if (more) return mediaMenu(r.left, r.bottom + 4, m);
     selectMedia(m.id);
   });
   $('#mediaGrid').addEventListener('dblclick', (e) => {
     const t = e.target.closest('.tile');
     if (!t || e.target.closest('.more')) return;
-    selectMedia(t.dataset.id);
+    if (t.dataset.dir) return openFolder(st.mediaSrc.root, t.dataset.dir);
+    if (t.dataset.path && !t.dataset.id) selectFile(t);
+    else selectMedia(t.dataset.id);
     goLive(0);
   });
   $('#mediaGrid').addEventListener('contextmenu', (e) => {
     const t = e.target.closest('.tile');
-    if (t) mediaMenu(e.clientX, e.clientY, mediaById(t.dataset.id));
+    if (!t || t.dataset.dir) return;
+    if (t.dataset.path && !t.dataset.id) fileMenu(e.clientX, e.clientY, fileItem(t));
+    else mediaMenu(e.clientX, e.clientY, mediaById(t.dataset.id));
   });
-  $('#mediaGrid').addEventListener('dragstart', (e) => { const t = e.target.closest('.tile'); if (t) dragItem(e, { type: 'media', id: t.dataset.id }); });
+  $('#mediaGrid').addEventListener('dragstart', (e) => {
+    const t = e.target.closest('.tile');
+    if (!t || t.dataset.dir) return;
+    dragItem(e, t.dataset.id ? { type: 'media', id: t.dataset.id } : fileItem(t));
+  });
   $('#mediaSearch').addEventListener('input', debounce(renderMedia, 120));
   $('#mediaFilter').addEventListener('click', (e) => {
     const c = e.target.closest('.chip');
@@ -1365,13 +1588,16 @@
   }
 
   const THEMES = [
-    { id: 'sand', name: 'Warm Sand', a: '#f4eee6', b: '#d2601a' },
-    { id: 'blue', name: 'Royal Blue', a: '#e9f0fd', b: '#1652f0' },
+    { id: 'studio', name: 'Walnut studio', a: '#221c18', b: '#e8a33d' },
+    { id: 'sand', name: 'Warm sand', a: '#f3ede5', b: '#c85a17' },
+    { id: 'blue', name: 'Royal blue', a: '#eaf0fb', b: '#1652f0' },
     { id: 'forest', name: 'Forest', a: '#eef1ea', b: '#2f7d4a' },
     { id: 'plum', name: 'Plum', a: '#f3eef4', b: '#8a3fb0' },
-    { id: 'midnight', name: 'Midnight', a: '#1c1b1a', b: '#f0a42a' },
   ];
-  function applyTheme() { document.documentElement.dataset.theme = st.settings.theme || 'sand'; }
+  function applyTheme() {
+    if (st.settings.theme === 'midnight') st.settings.theme = 'studio';
+    document.documentElement.dataset.theme = st.settings.theme || 'studio';
+  }
   $('#themePicker').addEventListener('click', (e) => {
     const b = e.target.closest('[data-theme-id]');
     if (!b) return;
@@ -1459,6 +1685,12 @@
   $('#btnBlack').onclick = () => toggleMode('black');
   $('#btnClearText').onclick = () => toggleMode('clear');
   $('#btnStandby').onclick = () => toggleMode('standby');
+  $('#btnClearAll').onclick = () => clearAll();
+  $('#btnLayerBg').onclick = () => toggleLayer('hideBg');
+  $('#btnLayerMedia').onclick = () => toggleLayer('hideMedia');
+  const tickClock = () => { $('#clock').textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); };
+  tickClock();
+  setInterval(tickClock, 5000);
   $('#btnTicker').onclick = () => toggleTicker();
   $('#tickerText').addEventListener('keydown', (e) => { if (e.key === 'Enter') toggleTicker(true); });
   $('#tickerText').addEventListener('input', debounce(() => {
@@ -1618,6 +1850,136 @@
     else return;
     e.preventDefault();
   });
+
+  // ---------- quick search (Ctrl+K) ----------
+  // One box for everything: songs, verses, media, slide groups, saved services and common actions.
+  const quick = { results: [], sel: 0, seq: 0 };
+  const COMMANDS = [
+    { label: 'Go live with the preview', icon: 'arrow', run: () => goLive() },
+    { label: 'Black screen', icon: 'black', run: () => toggleMode('black') },
+    { label: 'Standby screen', icon: 'pause', run: () => toggleMode('standby') },
+    { label: 'Clear all', icon: 'x', run: () => clearAll() },
+    { label: 'Choose live screens', icon: 'monitor', run: () => openDisplays() },
+    { label: 'New song', icon: 'plus', run: () => openSongEditor(null) },
+    { label: 'Save service', icon: 'save', run: () => openSaveService() },
+    { label: 'Open a saved service', icon: 'folder', run: () => $('#btnServices').click() },
+    { label: 'Settings', icon: 'sliders', run: () => $('#btnSettings').click() },
+  ];
+  const looksLikeRef = (q) => /^\s*([1-3]|i{1,3})?\s*[a-z][a-z .]*\s*\d+/i.test(q);
+
+  function openQuick() {
+    const d = $('#quickDialog');
+    if (d.open) return;
+    $('#quickInput').value = '';
+    runQuick();
+    d.showModal();
+    $('#quickInput').focus();
+  }
+
+  async function runQuick() {
+    const q = $('#quickInput').value.trim();
+    const ql = q.toLowerCase();
+    const seq = ++quick.seq;
+    const out = [];
+    if (!q) {
+      out.push(...st.schedule.slice(0, 8).map((it) => ({ group: 'In this service', icon: kindIcon(it), title: itemTitle(it), sub: itemSub(it), item: it })));
+      out.push(...COMMANDS.slice(0, 5).map((c) => ({ group: 'Actions', icon: c.icon, title: c.label, cmd: c })));
+    } else {
+      if (looksLikeRef(q)) {
+        try {
+          const r = await invoke('bible_search', { bible: +st.settings.bible, query: q });
+          if (seq !== quick.seq) return;
+          if (r.kind === 'reference' && r.verses.length) {
+            const chosen = r.selected.length ? r.verses.filter((v) => r.selected.includes(v.verse)) : r.verses.slice(0, 1);
+            const item = { type: 'scripture', bible: +st.settings.bible, bibleName: bibleShort(), title: rangeTitle(chosen), verses: chosen };
+            out.push({ group: 'Scripture', icon: 'book', title: `${item.title} (${item.bibleName})`, sub: chosen[0].text, item });
+          }
+        } catch { /* not a reference after all */ }
+      }
+      const songs = st.songs
+        .map((s) => ({ s, score: s.title.toLowerCase().startsWith(ql) ? 3 : s.title.toLowerCase().includes(ql) ? 2 : (s.lyrics || '').toLowerCase().includes(ql) ? 1 : 0 }))
+        .filter((x) => x.score)
+        .sort((a, b) => b.score - a.score || a.s.title.localeCompare(b.s.title))
+        .slice(0, 8);
+      out.push(...songs.map(({ s }) => {
+        const line = (s.lyrics || '').split('\n').find((l) => l.toLowerCase().includes(ql)) || firstLine(s);
+        return { group: 'Songs', icon: 'music', title: s.title, sub: line, item: { type: 'song', id: s.id } };
+      }));
+      out.push(...st.media.filter((m) => m.name.toLowerCase().includes(ql)).slice(0, 5)
+        .map((m) => ({ group: 'Media', icon: kindIconName(m.kind), title: m.name, sub: { image: 'Picture', video: 'Video', gif: 'GIF' }[m.kind], item: { type: 'media', id: m.id } })));
+      out.push(...st.groups.filter((g) => g.name.toLowerCase().includes(ql)).slice(0, 4)
+        .map((g) => ({ group: 'Slide groups', icon: 'slides', title: g.name, sub: `${g.pages.length} slides`, item: { type: 'group', id: g.id } })));
+      out.push(...st.services.filter((s) => s.name.toLowerCase().includes(ql)).slice(0, 4)
+        .map((s) => ({ group: 'Saved services', icon: 'list', title: s.name, sub: `${s.items.length} items`, service: s })));
+      out.push(...COMMANDS.filter((c) => c.label.toLowerCase().includes(ql)).map((c) => ({ group: 'Actions', icon: c.icon, title: c.label, cmd: c })));
+    }
+    if (seq !== quick.seq) return;
+    quick.results = out;
+    quick.sel = 0;
+    renderQuick();
+  }
+
+  function renderQuick() {
+    const host = $('#quickResults');
+    if (!quick.results.length) {
+      host.innerHTML = `<div class="omni-empty">Nothing found. Try a song title, a line of lyrics, or a reference like Psalm 23.</div>`;
+      return;
+    }
+    let lastGroup = '';
+    host.innerHTML = quick.results.map((r, i) => {
+      const head = r.group !== lastGroup ? `<div class="omni-group">${esc(r.group)}</div>` : '';
+      lastGroup = r.group;
+      const hint = r.cmd ? 'Run' : r.service ? 'Open' : 'Preview';
+      return `${head}<button class="omni-item${i === quick.sel ? ' sel' : ''}" data-i="${i}">
+        <span class="kind">${S.icon(r.icon)}</span>
+        <span class="t"><b>${esc(r.title)}</b>${r.sub ? `<small>${esc(r.sub)}</small>` : ''}</span>
+        <span class="hint">${hint}</span></button>`;
+    }).join('');
+    host.querySelector('.omni-item.sel')?.scrollIntoView({ block: 'nearest' });
+  }
+
+  async function chooseQuick(i, live) {
+    const r = quick.results[i];
+    if (!r) return;
+    $('#quickDialog').close();
+    if (r.cmd) return r.cmd.run();
+    if (r.service) {
+      if (r.service.id !== st.settings.currentServiceId && !(await confirmLeaveCurrent())) return;
+      st.schedule = structuredClone(r.service.items).map((it) => ({ ...it, uid: uid() }));
+      st.settings.currentServiceId = r.service.id;
+      r.service.items = structuredClone(st.schedule);
+      save('schedule'); save('settings'); save('services');
+      renderSchedule();
+      return toast(`Opened “${r.service.name}”`);
+    }
+    setPreview(r.item);
+    if (live) goLive(0);
+  }
+
+  $('#btnQuick').onclick = openQuick;
+  $('#quickInput').addEventListener('input', debounce(runQuick, 90));
+  $('#quickInput').addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      quick.sel = Math.max(0, Math.min(quick.results.length - 1, quick.sel + (e.key === 'ArrowDown' ? 1 : -1)));
+      renderQuick();
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      chooseQuick(quick.sel, e.ctrlKey);
+    }
+  });
+  $('#quickResults').addEventListener('click', (e) => {
+    const b = e.target.closest('.omni-item');
+    if (b) chooseQuick(+b.dataset.i, e.ctrlKey);
+  });
+  $('#quickDialog').addEventListener('click', (e) => { if (e.target === $('#quickDialog')) $('#quickDialog').close(); });
+  // Ctrl+K works from anywhere, even while typing in another box.
+  document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey && (e.key === 'k' || e.key === 'K')) {
+      e.preventDefault();
+      if (!document.querySelector('dialog.modal[open]')) openQuick();
+    }
+  }, true);
 
   // ---------- busy overlay ----------
   async function busy(text, fn) {
@@ -1939,11 +2301,6 @@
   };
   $('#libraryDialog').addEventListener('cancel', (e) => e.preventDefault());
 
-  function renderGreeting() {
-    const h = new Date().getHours();
-    $('#greeting').textContent = h < 12 ? 'Good morning 👋' : h < 18 ? 'Good afternoon 👋' : 'Good evening 👋';
-    $('#greetingSub').textContent = new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' }) + ' · Click to preview, double-click to go live';
-  }
 
   // ---------- first run ----------
   const SAMPLE_SONGS = [
@@ -1964,7 +2321,6 @@
   // ---------- init ----------
   async function init() {
     paintIcons();
-    renderGreeting();
     const info = await invoke('library_info');
     st.unconfigured = !info.configured;
     const [songs, media, groups, services, settings, schedule] = await Promise.all(
@@ -1984,6 +2340,8 @@
         ticker: { ...d.ticker, ...(settings.ticker || {}) },
         video: { ...d.video, ...(settings.video || {}) },
       };
+      // v1.3 introduced the walnut studio look: switch everyone over once (they can change back in Settings).
+      if (!settings.uiVersion) { st.settings.theme = 'studio'; st.settings.uiVersion = 2; save('settings'); }
     }
     applyTheme();
     if (st.settings.outputDisplay && !st.settings.outputDisplays.length) st.settings.outputDisplays = [st.settings.outputDisplay];
@@ -1992,6 +2350,14 @@
     if (st.unconfigured) openLibraryDialog(true);
     const groupPages = st.groups.flatMap((g) => g.pages);
     if (groupPages.length) invoke('register_media', { paths: groupPages });
+    // PC files used in the service or saved services must be loadable again after a restart.
+    const filePaths = [st.schedule, ...st.services.map((s) => s.items)].flat().filter((i) => i.type === 'file').map((i) => i.path);
+    if (filePaths.length) invoke('register_media', { paths: filePaths });
+    // First run of v1.3: offer the PC's Pictures and Videos folders in Media.
+    if (!Array.isArray(st.settings.mediaFolders)) {
+      st.settings.mediaFolders = await invoke('known_folders').catch(() => []);
+      save('settings');
+    }
     if (!st.settings.seeded) {
       if (!st.songs.length) st.songs = SAMPLE_SONGS.map((s) => ({ id: uid(), bg: null, ...s }));
       st.settings.seeded = true;

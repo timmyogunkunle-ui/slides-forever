@@ -9,7 +9,8 @@
     #stage { position: fixed; inset: 0; transition: opacity var(--fade, .35s) ease; }
     #stage.black { opacity: 0; }
     #textWrap { position: absolute; inset: 0; transition: opacity var(--fade, .35s) ease; }
-    #textWrap.cleared { opacity: 0; }
+    #textWrap.cleared, #bgWrap.cleared, #mediaWrap.cleared { opacity: 0; }
+    #bgWrap, #mediaWrap { transition: opacity var(--fade, .35s) ease; }
     #bgWrap, #mediaWrap { position: absolute; inset: 0; }
     #tickerHost { position: fixed; inset: 0; background: transparent; pointer-events: none; z-index: 10; }
     #bgWrap .sl-layer > * { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }

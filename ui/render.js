@@ -110,10 +110,11 @@
     if (!slide) return;
     const bgLayer = document.createElement('div');
     bgLayer.className = 'sl-bg';
-    if (slide.kind === 'brand') bgLayer.append(S.brandElement());
+    if (opts.hideBg && slide.kind !== 'brand') { /* background layer cleared */ }
+    else if (slide.kind === 'brand') bgLayer.append(S.brandElement());
     else if (slide.kind !== 'media') bgLayer.append(S.bgElement(slide.bg, opts));
     host.append(bgLayer);
-    if (slide.kind === 'media' && slide.media) {
+    if (slide.kind === 'media' && slide.media && !opts.hideMedia) {
       const m = document.createElement('div');
       m.className = 'sl-media';
       m.append(S.mediaElement(slide.media, opts));

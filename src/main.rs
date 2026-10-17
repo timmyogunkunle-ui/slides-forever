@@ -414,6 +414,60 @@ fn copy_with_progress(src: &Path, dest: &Path, mut progress: impl FnMut(u64, u64
     Ok(())
 }
 
+/// The user's Pictures and Videos folders, offered as starting points in the Media tab.
+#[tauri::command]
+fn known_folders(app: AppHandle) -> Vec<Value> {
+    let mut out = Vec::new();
+    for (name, dir) in [("Pictures", app.path().picture_dir()), ("Videos", app.path().video_dir())] {
+        if let Ok(d) = dir {
+            if d.is_dir() {
+                out.push(json!({ "name": name, "path": d }));
+            }
+        }
+    }
+    out
+}
+
+/// One level of a folder on the PC: sub-folders plus the pictures, videos and GIFs in it.
+/// Files are read straight from disk (nothing is copied) so the folder is always up to date.
+#[tauri::command]
+async fn list_folder(app: AppHandle, path: String) -> Result<Value, String> {
+    let dir = PathBuf::from(&path);
+    let rd = fs::read_dir(&dir).map_err(|e| format!("Can't open {}: {e}", dir.display()))?;
+    let mut dirs = Vec::new();
+    let mut files = Vec::new();
+    for e in rd.flatten() {
+        let p = e.path();
+        let name = e.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') || name.starts_with('$') {
+            continue;
+        }
+        let Ok(meta) = e.metadata() else { continue };
+        if meta.is_dir() {
+            dirs.push(json!({ "name": name, "path": p }));
+        } else if let Some(kind) = library::media_kind(&p) {
+            let modified = meta
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            files.push(json!({
+                "name": p.file_stem().unwrap_or_default().to_string_lossy(),
+                "path": p,
+                "kind": kind,
+                "size": meta.len(),
+                "modified": modified,
+            }));
+        }
+    }
+    dirs.sort_by_key(|d| d["name"].as_str().unwrap_or("").to_lowercase());
+    // newest first: the photo you just took or downloaded is at the top
+    files.sort_by(|a, b| b["modified"].as_u64().cmp(&a["modified"].as_u64()));
+    let _ = app.asset_protocol_scope().allow_directory(&dir, false);
+    Ok(json!({ "path": dir, "dirs": dirs, "files": files }))
+}
+
 /// Lets the webview load previously imported media files from wherever they live on disk.
 #[tauri::command]
 fn register_media(app: AppHandle, paths: Vec<String>) -> Vec<String> {
@@ -808,6 +862,8 @@ fn main() {
             import_songs,
             pick_media,
             register_media,
+            known_folders,
+            list_folder,
             bible_list,
             bible_books,
             bible_chapter,

@@ -47,6 +47,9 @@
     if (p.standby) slide = p.standby;
     stage.classList.toggle('black', !!p.black || !slide);
     textWrap.classList.toggle('cleared', !!p.clear && !p.standby);
+    // Background and media layers can be hidden on their own (they keep playing underneath).
+    bgWrap.classList.toggle('cleared', !!p.clearBg && !p.standby);
+    mediaWrap.classList.toggle('cleared', !!p.clearMedia && !p.standby);
     S.renderTicker(tickerHost, p.black ? null : p.ticker);
     if (!slide) return; // keep layers so un-blacking resumes instantly
 

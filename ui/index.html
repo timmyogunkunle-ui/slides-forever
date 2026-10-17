@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-theme="sand">
+<html lang="en" data-theme="studio">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -10,17 +10,17 @@
 <body>
   <header class="topbar">
     <div class="brand"><img src="logo.png" alt="Slides Forever" /></div>
-    <div class="greeting"><b id="greeting">Welcome</b><small id="greetingSub">Click to preview · Double-click to go live</small></div>
+    <button class="omni" id="btnQuick" title="Search songs, verses, media and commands (Ctrl+K)">
+      <span data-icon="search"></span><span class="omni-text">Search songs, verses, media…</span><kbd>Ctrl K</kbd>
+    </button>
     <div class="top-actions">
-      <button class="display-pill" id="btnDisplays" title="Choose the screen the live output goes to">
-        <span class="ic-wrap" data-icon="monitor"></span>
-        <span class="dp-text"><small>Live screen</small><b id="displayLabel">Choose display</b></span>
-        <span data-icon="down"></span>
+      <button class="display-pill" id="btnDisplays" title="Choose the screens the live output goes to">
+        <span data-icon="monitor"></span><b id="displayLabel">Choose display</b><span data-icon="down"></span>
       </button>
-      <button class="output-toggle" id="btnOutput" title="Turn the live output window on/off">
+      <button class="output-toggle" id="btnOutput" title="Turn the live output on or off">
         <span class="dot"></span><span id="outputLabel">Output off</span>
       </button>
-      <button class="icon-btn big" id="btnSettings" title="Settings"><span data-icon="sliders"></span></button>
+      <button class="icon-btn" id="btnSettings" title="Settings"><span data-icon="sliders"></span></button>
     </div>
   </header>
 
@@ -28,7 +28,6 @@
     <!-- Service order -->
     <section class="panel schedule-panel">
       <div class="panel-head">
-        <span class="badge" data-icon="list"></span>
         <div class="svc-title"><h2>Service</h2><small id="serviceName">Not saved yet</small></div>
         <div class="grow"></div>
         <button class="icon-btn" id="btnSaveService" title="Save this service (Ctrl+S)"><span data-icon="save"></span></button>
@@ -42,10 +41,9 @@
       </div>
     </section>
 
-    <!-- Preview -->
+    <!-- Preview: the item being prepared -->
     <section class="panel preview-panel">
       <div class="panel-head">
-        <span class="badge" data-icon="eye"></span>
         <h2>Preview</h2>
         <span class="item-title" id="previewTitle">Nothing selected</span>
         <div class="grow"></div>
@@ -54,13 +52,13 @@
       <div class="stage-row">
         <div class="stage" id="previewStage"></div>
         <button class="go-live" id="btnGoLive" title="Send to live (Enter)">
-          <span data-icon="arrow"></span><b>GO LIVE</b><small>Enter</small>
+          <span data-icon="arrow"></span><b>Go live</b><small>Enter</small>
         </button>
       </div>
       <div class="slides" id="previewSlides"></div>
     </section>
 
-    <!-- Live -->
+    <!-- Live: what the congregation sees -->
     <section class="panel live-panel" id="livePanel">
       <div class="panel-head">
         <span class="live-chip"><i></i>Live</span>
@@ -71,13 +69,23 @@
           <option value="wipe">Wipe</option><option value="blur">Blur</option><option value="cut">Cut</option>
         </select>
       </div>
-      <div class="stage-row">
+      <div class="live-top">
         <div class="stage live" id="liveStage"></div>
-        <div class="live-tools">
-          <button class="tool" id="btnBlack" title="Black screen (B)"><span data-icon="black"></span><b>Black</b></button>
-          <button class="tool" id="btnClearText" title="Hide text, keep background (C)"><span data-icon="textoff"></span><b>Clear</b></button>
-          <button class="tool" id="btnStandby" title="Standby screen (S)"><span data-icon="pause"></span><b>Standby</b></button>
+        <div class="next-col">
+          <div class="next-label">Next <span id="nextLabel"></span></div>
+          <div class="stage next" id="nextStage"></div>
+          <div class="clock" id="clock">00:00</div>
         </div>
+      </div>
+      <div class="layers" role="toolbar" aria-label="Output layers">
+        <button class="layer clear-all" id="btnClearAll" title="Clear everything (Esc)"><span data-icon="x"></span>Clear all</button>
+        <button class="layer" id="btnLayerBg" title="Show or hide the background"><span data-icon="image"></span>Background</button>
+        <button class="layer" id="btnClearText" title="Show or hide the words (C)"><span data-icon="text"></span>Text</button>
+        <button class="layer" id="btnLayerMedia" title="Show or hide the video or picture"><span data-icon="film"></span>Media</button>
+        <button class="layer" id="btnTicker" title="Show or hide the scrolling message (T)"><span data-icon="ticker"></span>Message</button>
+        <span class="layer-sep"></span>
+        <button class="layer" id="btnBlack" title="Black screen (B)"><span data-icon="black"></span>Black</button>
+        <button class="layer" id="btnStandby" title="Standby screen (S)"><span data-icon="pause"></span>Standby</button>
       </div>
       <div class="vbar" id="videoBar" hidden>
         <div class="vrow">
@@ -114,10 +122,9 @@
         <span class="time" id="autoStatus"></span>
       </div>
       <div class="bar ticker-bar">
-        <input type="text" id="tickerText" placeholder="Scrolling message (e.g. Car park full — please use the side entrance)" />
-        <button class="pill-btn" id="btnTicker" title="Show / hide the scrolling message"><span data-icon="ticker"></span><span>Scroll</span></button>
+        <input type="text" id="tickerText" placeholder="Scrolling message, e.g. Car park full, please use the side entrance" />
       </div>
-      <div class="slides" id="liveSlides"></div>
+      <div class="slides live-list" id="liveSlides"></div>
     </section>
   </main>
 
@@ -125,7 +132,7 @@
   <section class="library">
     <nav class="lib-tabs">
       <button class="lib-tab active" data-tab="songs"><span data-icon="music"></span>Songs</button>
-      <button class="lib-tab" data-tab="bible"><span data-icon="book"></span>Bible</button>
+      <button class="lib-tab" data-tab="bible"><span data-icon="book"></span>Scripture</button>
       <button class="lib-tab" data-tab="media"><span data-icon="image"></span>Media</button>
       <button class="lib-tab" data-tab="slides"><span data-icon="layers"></span>Slide groups</button>
     </nav>
@@ -133,7 +140,7 @@
     <!-- Songs -->
     <div class="lib-page active" data-page="songs">
       <div class="lib-toolbar">
-        <label class="search"><span data-icon="search"></span><input id="songSearch" placeholder="Search songs by title or lyrics…" /></label>
+        <label class="search"><span data-icon="search"></span><input id="songSearch" placeholder="Search songs by title or lyrics" /></label>
         <button class="btn primary" id="btnNewSong"><span data-icon="plus"></span>New song</button>
         <button class="btn" id="btnImportSongs"><span data-icon="upload"></span>Import .txt</button>
         <button class="btn" id="btnImportEW"><span data-icon="download"></span>From EasyWorship</button>
@@ -147,8 +154,8 @@
     <div class="lib-page" data-page="bible">
       <div class="lib-toolbar">
         <select id="bibleSelect" class="select"></select>
-        <label class="search big"><span data-icon="search"></span><input id="bibleSearch" placeholder="Type a reference (John 3:16, Ps 23, 1 Cor 13:4-7) or words (love never fails)… then Enter" /></label>
-        <button class="btn" id="btnBibleAdd"><span data-icon="plus"></span>Service</button>
+        <label class="search big"><span data-icon="search"></span><input id="bibleSearch" placeholder="Type a reference like John 3:16 or Ps 23, or some words, then press Enter" /></label>
+        <button class="btn" id="btnBibleAdd"><span data-icon="plus"></span>Add to service</button>
       </div>
       <div class="bible-body">
         <div class="bible-nav">
@@ -156,26 +163,37 @@
           <div class="chapters" id="chapterList"></div>
         </div>
         <div class="verses-wrap">
-          <div class="verses-head"><b id="versesTitle">Choose a book</b><span class="muted small">Click a verse to preview · Shift-click for a range · Double-click to go live</span></div>
+          <div class="verses-head"><b id="versesTitle">Choose a book</b><span class="muted small">Click a verse to preview, Shift-click for a range, double-click to go live</span></div>
           <div class="verses" id="verseList"></div>
         </div>
       </div>
     </div>
 
-    <!-- Media -->
+    <!-- Media: your library plus folders on this PC -->
     <div class="lib-page" data-page="media">
-      <div class="lib-toolbar">
-        <label class="search"><span data-icon="search"></span><input id="mediaSearch" placeholder="Search media…" /></label>
-        <div class="chips" id="mediaFilter">
-          <button class="chip active" data-kind="all">All</button>
-          <button class="chip" data-kind="image"><span data-icon="image"></span>Images</button>
-          <button class="chip" data-kind="video"><span data-icon="film"></span>Videos</button>
-          <button class="chip" data-kind="gif"><span data-icon="gif"></span>GIFs</button>
+      <div class="media-body">
+        <aside class="media-side">
+          <button class="side-item active" data-src="library"><span data-icon="layers"></span><span>My media</span><small id="libCount"></small></button>
+          <div class="side-head">Folders on this PC</div>
+          <div id="folderList"></div>
+          <button class="side-add" id="btnAddFolder"><span data-icon="plus"></span>Add a folder</button>
+        </aside>
+        <div class="media-main">
+          <div class="lib-toolbar">
+            <span class="crumb" id="mediaCrumb">My media</span>
+            <label class="search"><span data-icon="search"></span><input id="mediaSearch" placeholder="Search" /></label>
+            <div class="chips" id="mediaFilter">
+              <button class="chip active" data-kind="all">All</button>
+              <button class="chip" data-kind="image">Images</button>
+              <button class="chip" data-kind="video">Videos</button>
+              <button class="chip" data-kind="gif">GIFs</button>
+            </div>
+            <div class="grow"></div>
+            <button class="btn primary" id="btnAddMedia"><span data-icon="plus"></span>Add media</button>
+          </div>
+          <div class="media-grid" id="mediaGrid"></div>
         </div>
-        <div class="grow"></div>
-        <button class="btn primary" id="btnAddMedia"><span data-icon="plus"></span>Add media</button>
       </div>
-      <div class="media-grid" id="mediaGrid"></div>
     </div>
 
     <!-- Slide groups -->
@@ -434,6 +452,15 @@
         <div class="grow"></div>
         <button class="btn" id="chooserNone">Use default</button>
       </div>
+    </div>
+  </dialog>
+
+  <!-- Quick search -->
+  <dialog class="omni-dialog" id="quickDialog" aria-label="Quick search">
+    <div class="omni-box">
+      <label class="omni-input"><span data-icon="search"></span><input id="quickInput" placeholder="Search songs, verses like John 3:16, media and commands" autocomplete="off" /></label>
+      <div class="omni-results" id="quickResults"></div>
+      <div class="omni-foot"><span><kbd>↑</kbd><kbd>↓</kbd> choose</span><span><kbd>Enter</kbd> preview</span><span><kbd>Ctrl</kbd>+<kbd>Enter</kbd> go live</span><span><kbd>Esc</kbd> close</span></div>
     </div>
   </dialog>
 
